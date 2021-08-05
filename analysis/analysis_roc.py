@@ -22,7 +22,7 @@ def plot_roc(neg_class_losses, pos_class_losses, legend=[], title='ROC', legend_
     class_labels, losses = get_label_and_score_arrays(neg_class_losses, pos_class_losses) # neg_class_loss array same for all pos_class_losses
 
     aucs = []
-    fig = plt.figure(figsize=(5, 5))
+    fig = plt.figure(figsize=(7, 7))
 
     for y_true, loss, label in zip(class_labels, losses, legend):
         fpr, tpr, threshold = skl.roc_curve(y_true, loss)
@@ -41,8 +41,9 @@ def plot_roc(neg_class_losses, pos_class_losses, legend=[], title='ROC', legend_
     plt.tight_layout()
     plt.title(title)
     if fig_dir:
-        fig.savefig(os.path.join(fig_dir, plot_name + '.png'), bbox_inches='tight')
-    plt.close(fig)
+        fig.savefig(os.path.join(fig_dir, plot_name + '.png'), bbox_inches='tight' )
+    #plt.close(fig)
+    plt.show()
 
     return aucs
 
