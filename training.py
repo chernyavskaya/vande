@@ -44,47 +44,6 @@ class Stopper():
         return False
 
 
-class TrainerParticleNet(Trainer):
-
-    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0):
-        super(TrainerParticleNet, self).__init__(self)
-        self.optimizer = optimizer
-        self.beta = beta
-        self.patience = patience
-        self.min_delta = min_delta
-        self.max_lr_decay = max_lr_decay
-        self.lambda_reg = lambda_reg
-        self.train_stop = Stopper(optimizer, min_delta, patience, max_lr_decay)
-        self.best_loss_so_far = None        
-        
-
-    @tf.function
-    def training_step(self, model, loss_fn_reco, x_batch):
-        (coord_in, feats_in)  = x_batch
-        
-        with tf.GradientTape() as tape:
-            # Run the forward pass
-            predictions = model(x_batch, training=True)  # Logits for this minibatch
-            # Compute the loss value for this minibatch.
-            reco_loss = tf.math.reduce_mean(loss_fn_reco(feats_in, predictions))
-            kl_loss = tf.math.reduce_mean(model.losses) # get kl loss registered in sampling layer
-            reg_loss = losses.l2_regularize(model.trainable_weights)
-            total_loss = reco_loss + self.beta * kl_loss + self.lambda_reg * reg_loss
-        # the gradients of the trainable variables with respect to the loss.
-        grads = tape.gradient(total_loss, model.trainable_weights)
-        # Run one step of gradient descent
-        self.optimizer.apply_gradients(zip(grads, model.trainable_weights))
-
-        return reco_loss, kl_loss
-
-    @tf.function
-    def validation_step(self, model, loss_fn, x_batch):
-        (coord_in, feats_in)  = x_batch
-
-        predictions = model(x_batch, training=False)
-        reco_loss = tf.math.reduce_mean(loss_fn(feats_in, predictions))
-        kl_loss = tf.math.reduce_mean(model.losses)
-        return reco_loss, kl_loss
 
 
 
@@ -133,6 +92,8 @@ class Trainer():
 
         # for each batch in training set
         for step, x_batch_train in enumerate(train_ds):
+        #step = 0
+        #for x_batch_train in train_ds:
 
             reco_loss, kl_loss = self.training_step(model, loss_fn, x_batch_train)    
 
@@ -141,9 +102,10 @@ class Trainer():
             training_loss_kl += kl_loss
             
             # Log every 3000 batches.
-            if step % 4000 == 0:
-                print("Step {}: mean reco loss {:.4f}, KL loss {:.4f} (in one batch)".format(step, float(reco_loss), float(kl_loss)))
-                print("Seen so far: %s samples" % ((step + 1) * 256))
+           # if step % 4000 == 0:
+            print("Step {}: mean reco loss {:.4f}, KL loss {:.4f} (in one batch)".format(step, float(reco_loss), float(kl_loss)))
+            print("Seen so far: %s samples" % ((step + 1) ))
+           # step+=1
 
         # return average batch loss
         return (training_loss_reco / (step+1), training_loss_kl / (step+1)) 
@@ -162,10 +124,13 @@ class Trainer():
         validation_loss_reco = 0.
         validation_loss_kl = 0.
 
-        for step, x_batch_val in enumerate(valid_ds):
+        #step = 0
+        #for  x_batch_val in valid_ds:
+        for  step,x_batch_val in enumerate(valid_ds):
             reco_loss, kl_loss = self.validation_step(model, loss_fn, x_batch_val)
             validation_loss_reco += reco_loss
             validation_loss_kl += kl_loss
+            #step+=1
 
         return (validation_loss_reco / (step+1), validation_loss_kl / (step+1))
 
@@ -194,6 +159,50 @@ class Trainer():
                 print('saving best so far model with valid loss {:.3f} and kl loss {:.3f}'.format(validation_loss_reco, validation_loss_kl))
                 vae.save(os.path.join(model_dir, 'best_so_far'))
         return losses_reco, losses_valid
+
+
+
+class TrainerParticleNet(Trainer):
+
+    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0):
+        super(TrainerParticleNet, self).__init__(self)
+        self.optimizer = optimizer
+        self.beta = beta
+        self.patience = patience
+        self.min_delta = min_delta
+        self.max_lr_decay = max_lr_decay
+        self.lambda_reg = lambda_reg
+        self.train_stop = Stopper(optimizer, min_delta, patience, max_lr_decay)
+        self.best_loss_so_far = None        
+        
+
+    @tf.function
+    def training_step(self, model, loss_fn_reco, x_batch):
+        (coord_in, feats_in)  = x_batch
+        
+        with tf.GradientTape() as tape:
+            # Run the forward pass
+            predictions = model(x_batch, training=True)  # Logits for this minibatch
+            # Compute the loss value for this minibatch.
+            reco_loss = tf.math.reduce_mean(loss_fn_reco(feats_in, predictions))
+            kl_loss = tf.math.reduce_mean(model.losses) # get kl loss registered in sampling layer
+            reg_loss = losses.l2_regularize(model.trainable_weights)
+            total_loss = reco_loss + self.beta * kl_loss + self.lambda_reg * reg_loss
+        # the gradients of the trainable variables with respect to the loss.
+        grads = tape.gradient(total_loss, model.trainable_weights)
+        # Run one step of gradient descent
+        self.optimizer.apply_gradients(zip(grads, model.trainable_weights))
+
+        return reco_loss, kl_loss
+
+    @tf.function
+    def validation_step(self, model, loss_fn, x_batch):
+        (coord_in, feats_in)  = x_batch
+
+        predictions = model(x_batch, training=False)
+        reco_loss = tf.math.reduce_mean(loss_fn(feats_in, predictions))
+        kl_loss = tf.math.reduce_mean(model.losses)
+        return reco_loss, kl_loss
 
 
 # plot training results
