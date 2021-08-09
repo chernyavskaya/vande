@@ -130,6 +130,7 @@ class Trainer():
             reco_loss, kl_loss = self.validation_step(model, loss_fn, x_batch_val)
             validation_loss_reco += reco_loss
             validation_loss_kl += kl_loss
+            print("Validation Step {}".format(step))
             #step+=1
 
         return (validation_loss_reco / (step+1), validation_loss_kl / (step+1))

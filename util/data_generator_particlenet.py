@@ -122,17 +122,21 @@ class DataGeneratorDirect():
             samples = events_to_input_samples(constituents, features)
             samples = normalize_features(samples)
 
-            nb = samples.shape[0] // batch_size
-            last_batch = samples.shape[0] % batch_size
 
+            num_to_process = self.sample_max_n if self.sample_max_n is not None else samples.shape[0]
+            nb = num_to_process // batch_size
+            last_batch = num_to_process % batch_size
+
+            print('nb {}, last_batch {}, num_to_process {}'.format(nb,last_batch,num_to_process))
             for ib in range(nb):
                 samples_read_n += batch_size
-                if self.sample_max_n is not None and (samples_read_n >= self.sample_max_n+batch_size):
+                if (samples_read_n >= num_to_process+batch_size):
                     break
                 else :
                     yield samples[ib*batch_size:(ib+1)*batch_size,:,0:2], samples[ib*batch_size:(ib+1)*batch_size,:,:]
             if last_batch > 0:
                 yield samples[-last_batch:,:,0:2], samples[-last_batch:,:,:]
+            break
         
         print('[DataGenerator]: __call__() yielded {} samples'.format(samples_read_n))
         generator.close()
