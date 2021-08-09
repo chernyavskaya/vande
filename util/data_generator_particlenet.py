@@ -3,6 +3,8 @@ import sarewt.data_reader as dare
 import pofah.util.utility_fun as utfu
 import h5py
 import tensorflow as tf 
+import sklearn.utils as skutil
+
 
 def log_transform(x):
     return np.where(x==0,-10,np.log(x))
@@ -33,8 +35,8 @@ def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarr
         const_j1 = constituents[:,0,:,:][mask_j1]
         const_j2 = constituents[:,1,:,:][mask_j2]
         samples = np.vstack([const_j1, const_j2])
-        #np.random.shuffle(samples) #this will only shuffle jets
-        #samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though, removing it, because tensorflow will shuffle. TO DO : check that it actually does
+        np.random.shuffle(samples) #this will only shuffle jets
+        samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though...
         return samples  
 
 def events_to_input_samples(constituents, features):
@@ -124,20 +126,21 @@ class DataGeneratorDirect():
 
 
             num_to_process = self.sample_max_n if self.sample_max_n is not None else samples.shape[0]
+            if samples.shape[0] < num_to_process : num_to_process = samples.shape[0]
             nb = num_to_process // batch_size
             last_batch = num_to_process % batch_size
 
-            print('nb {}, last_batch {}, num_to_process {}'.format(nb,last_batch,num_to_process))
             for ib in range(nb):
                 samples_read_n += batch_size
-                if (samples_read_n >= num_to_process+batch_size):
-                    break
-                else :
+                if (samples_read_n >= self.sample_max_n+batch_size):
+                    break  
+                else :  
                     yield samples[ib*batch_size:(ib+1)*batch_size,:,0:2], samples[ib*batch_size:(ib+1)*batch_size,:,:]
-            if last_batch > 0:
-                yield samples[-last_batch:,:,0:2], samples[-last_batch:,:,:]
-            break
-        
+            '''  drop remainder batch ''' 
+           # if last_batch > 0:
+           #     yield samples[-last_batch:,:,0:2], samples[-last_batch:,:,:] 
+            if (samples_read_n >= self.sample_max_n+batch_size):
+                break        
         print('[DataGenerator]: __call__() yielded {} samples'.format(samples_read_n))
         generator.close()
 
