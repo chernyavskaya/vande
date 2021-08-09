@@ -92,9 +92,6 @@ class Trainer():
 
         # for each batch in training set
         for step, x_batch_train in enumerate(train_ds):
-        #step = 0
-        #for x_batch_train in train_ds:
-
             reco_loss, kl_loss = self.training_step(model, loss_fn, x_batch_train)    
 
             # add training loss (reco & KL)
@@ -102,10 +99,9 @@ class Trainer():
             training_loss_kl += kl_loss
             
             # Log every 3000 batches.
-           # if step % 4000 == 0:
-            print("Step {}: mean reco loss {:.4f}, KL loss {:.4f} (in one batch)".format(step, float(reco_loss), float(kl_loss)))
-            print("Seen so far: %s samples" % ((step + 1) ))
-           # step+=1
+            if step % 4000 == 0:
+                print("Step {}: mean reco loss {:.4f}, KL loss {:.4f} (in one batch)".format(step, float(reco_loss), float(kl_loss)))
+                print("Seen so far: %s samples" % ((step + 1) ))
 
         # return average batch loss
         return (training_loss_reco / (step+1), training_loss_kl / (step+1)) 
@@ -124,14 +120,10 @@ class Trainer():
         validation_loss_reco = 0.
         validation_loss_kl = 0.
 
-        #step = 0
-        #for  x_batch_val in valid_ds:
         for  step,x_batch_val in enumerate(valid_ds):
             reco_loss, kl_loss = self.validation_step(model, loss_fn, x_batch_val)
             validation_loss_reco += reco_loss
             validation_loss_kl += kl_loss
-            #step+=1
-
         return (validation_loss_reco / (step+1), validation_loss_kl / (step+1))
 
 

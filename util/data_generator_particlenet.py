@@ -124,7 +124,6 @@ class DataGeneratorDirect():
             samples = events_to_input_samples(constituents, features)
             samples = normalize_features(samples)
 
-
             num_to_process = self.sample_max_n if self.sample_max_n is not None else samples.shape[0]
             if samples.shape[0] < num_to_process : num_to_process = samples.shape[0]
             nb = num_to_process // batch_size
@@ -143,6 +142,7 @@ class DataGeneratorDirect():
                 break        
         print('[DataGenerator]: __call__() yielded {} samples'.format(samples_read_n))
         generator.close()
+
 
 
 class DataGeneratorDirectPrepr():
@@ -178,5 +178,48 @@ class DataGeneratorDirectPrepr():
                 yield samples[-last_batch:,:,0:2], samples[-last_batch:,:,:]
         
         print('[DataGenerator]: __call__() yielded {} samples'.format(samples_read_n))
+
+
+
+
+class DataGeneratorPerFile():
+
+    def __init__(self, path, sample_max_n=None,batch_size=256, **cuts):
+        self.path = path
+        self.sample_max_n = int(sample_max_n) if sample_max_n else None
+        self.cuts = cuts
+        self.batch_size = batch_size
+
+
+    def __call__(self): # -> generator object yielding np.ndarray, np.ndarray
+
+        batch_size = self.batch_size
+        print('path = ',self.path)
+        reader = dare.DataReader(self.path)
+
+        flist = reader.get_file_list()
+        samples_read_n = 0
+        for i_file, fname in enumerate(flist):
+            constituents, features = reader.read_events_from_file(fname, **self.cuts)
+            samples = events_to_input_samples(constituents, features)
+            samples = normalize_features(samples)
+
+            num_to_process = self.sample_max_n if self.sample_max_n is not None else samples.shape[0]
+            if constituents.shape[0] < num_to_process : num_to_process = samples.shape[0]
+            nb = num_to_process // batch_size
+            last_batch = num_to_process % batch_size
+
+            for ib in range(nb):
+                samples_read_n += batch_size
+                if (samples_read_n >= self.sample_max_n+batch_size):
+                    break  
+                else :  
+                    yield samples[ib*batch_size:(ib+1)*batch_size,:,0:2], samples[ib*batch_size:(ib+1)*batch_size,:,:]
+            '''  drop remainder batch ''' 
+           # if last_batch > 0:
+           #     yield samples[-last_batch:,:,0:2], samples[-last_batch:,:,:] 
+            if (samples_read_n >= self.sample_max_n+batch_size):
+                break        
+            print('[DataGenerator]: __call__() yielded {} samples'.format(samples_read_n))
 
 
