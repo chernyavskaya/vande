@@ -2,6 +2,7 @@ import sys,os
 sys.path.append(os.path.abspath(os.path.join('..')))
 sys.path.append(os.path.abspath(os.path.join('../sarewt_orig/')))
 sys.path.append(os.path.abspath(os.path.join('../../')))
+import glob
 import setGPU
 import numpy as np
 from collections import namedtuple
@@ -20,22 +21,25 @@ import sarewt.data_reader as dare
 import pofah.phase_space.cut_constants as cuts
 import training as tra
 import time
+import h5py
+import json
 
 
 # ********************************************************
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
- epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg')
-params = RunParameters(run_n=113, 
+ epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg generator')
+params = RunParameters(run_n=2, 
                        epochs=2, 
-                       train_total_n=int(1e6), 
-                       valid_total_n=int(2e2), 
-                       gen_part_n=int(5e3), 
-                       batch_n=50, 
+                       train_total_n=int(4e3 ), 
+                       valid_total_n=int(4e3), 
+                       gen_part_n=int(1e5), 
+                       batch_n=256, 
                        learning_rate=0.001,
-                       max_lr_decay=8, 
-                       lambda_reg=0.0) # 'L1L2'
+                       max_lr_decay=5, 
+                       lambda_reg=0.0,# 'L1L2'
+                       generator=0)  #run generator or not
 
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 paths = safa.SamplePathDirFactory(sdi.path_dict)
@@ -43,50 +47,84 @@ paths = safa.SamplePathDirFactory(sdi.path_dict)
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Setting', 'name  input_shape  beta activation initializer conv_params conv_params_encoder conv_params_decoder with_bn conv_pooling conv_linking latent_dim ae_type kl_warmup_time kernel_ini_n')
-setting = Parameters(name = 'PN',
+Parameters = namedtuple('Settings', 'name  input_shape  beta activation initializer conv_params conv_params_encoder conv_params_decoder with_bn conv_pooling conv_linking latent_dim ae_type kl_warmup_time kernel_ini_n')
+settings = Parameters(name = 'PN',
                      input_shape=[(100,2),(100,3)],
-                     beta=0.1, 
+                     beta=1., 
                      activation=klayers.LeakyReLU(alpha=0.1),
-                     initializer='he_uniform',
+                     initializer='glorot_normal', 
                       # conv_params: list of tuple in the format (K, (C1, C2, C3))
-                     conv_params = [(15, ([20,20,20])),(15, ([20,20,20]))],
-                     conv_params_encoder = [],
-                     conv_params_decoder = [10],  #[32,16,8]
+                     conv_params = [(7, (32, 32, 32)),
+                                    (7, (64, 64, 64)),
+                                    ],
+                                #   [(16, (64, 64, 64)),
+                                #    (16, (128, 128, 128)),
+                                #    (16, (256, 256, 256)),
+                                #   ],
+                     conv_params_encoder = [20],
+                     conv_params_decoder = [50,30,10,5],  #[32,16,8]
                      with_bn = True,
                      conv_pooling = 'average',
-                     conv_linking = 'sum' ,#concat or sum
+                     conv_linking = 'sum' ,#concat or sum #currently shorcut is removed
                      latent_dim = 3,
                      ae_type = 'vae',  #ae or vae 
-                     kl_warmup_time = 10,
-                     kernel_ini_n = 0)
+                     kl_warmup_time = 10, #currently noy used
+                     kernel_ini_n = 0) #should be/will be removed at next iteration
 
+
+''' saving model parameters''' 
+SetupParameters = namedtuple("SetupParameters", RunParameters._fields + Parameters._fields)
+save_params = SetupParameters(*(params + settings))
+saev_params_json = json.dumps((save_params._replace(activation='activation'))._asdict()) #replacing activation as you cannot save it
+with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='utf-8') as f_json:
+    json.dump(saev_params_json, f_json, ensure_ascii=False, indent=4)
 
 # ********************************************************
 #       prepare training (generator) and validation data
 # ********************************************************
-
+print('>>> Launching Training')
+start_time = time.time()
 # train (generator)
-print('>>> Preparing training dataset generator')
-
-
-data_train_generator = dage_pn.DataGeneratorDirect(path=paths.sample_dir_path('qcdSide'), 
-                                                   sample_part_n=params.gen_part_n, 
-                                                   sample_max_n=params.train_total_n, 
-                                                   batch_size = params.batch_n,
-                                                   **cuts.global_cuts
-                                                  ) # generate 10 M jet samples
-train_ds = tf.data.Dataset.from_generator(data_train_generator, 
-                                         (tf.float32,tf.float32), 
-                                         (tf.TensorShape([None,setting.input_shape[0][0],setting.input_shape[0][1]]),
-                                          tf.TensorShape([None,setting.input_shape[1][0],setting.input_shape[1][1]]))
-                                         )
-train_ds = train_ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-
-
+if params.generator:
+    print('>>> Preparing training dataset generator')
+    data_train_generator = dage_pn.DataGeneratorDirect(path=paths.sample_dir_path('qcdSide'), 
+                                                       sample_part_n=params.gen_part_n, 
+                                                       sample_max_n=params.train_total_n, 
+                                                       batch_size = params.batch_n,
+                                                       **cuts.global_cuts
+                                                      ) # generate 10 M jet samples
+    train_ds = tf.data.Dataset.from_generator(data_train_generator, 
+                                             (tf.float32,tf.float32), 
+                                             (tf.TensorShape([None,settings.input_shape[0][0],settings.input_shape[0][1]]),
+                                              tf.TensorShape([None,settings.input_shape[1][0],settings.input_shape[1][1]]))
+                                             )
+    train_ds = train_ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+else :
+    # training (full tensor, 1M events -> 2M samples)
+    print('>>> Preparing training dataset')
+    #const_train, _, features_train, _ = dare.DataReader(path=paths.sample_dir_path('qcdSide')).read_events_from_dir(read_n=params.train_total_n, **cuts.global_cuts)
+    flist = []
+    flist  += glob.glob(paths.sample_dir_path('qcdSide') + '/' + '*.h5')
+    flist.sort()
+    data_train_read = h5py.File(flist[0], 'r') 
+    const_train = data_train_read['jetConstituentsList'][0:params.train_total_n,]
+    features_train = data_train_read['eventFeatures'][0:params.train_total_n,]
+    print('>>> Normalizing features, shape {}'.format(const_train.shape))
+    data_train = dage_pn.events_to_input_samples(const_train, features_train)
+    data_train = dage_pn.normalize_features(data_train)
+    train_ds = tf.data.Dataset.from_tensor_slices((data_train[:,:,0:2],data_train[:,:,:])).batch(params.batch_n, drop_remainder=True)
+     #TODO : it has to be shuffled! right now it is shuffled only inside generator
+    
 # validation (full tensor, 1M events -> 2M samples)
 print('>>> Preparing validation dataset')
-const_valid, _, features_valid, _ = dare.DataReader(path=paths.sample_dir_path('qcdSideExt')).read_events_from_dir(read_n=params.valid_total_n, **cuts.global_cuts)
+#const_valid, _, features_valid, _ = dare.DataReader(path=paths.sample_dir_path('qcdSideExt')).read_events_from_dir(read_n=params.valid_total_n, **cuts.global_cuts)
+flist = []
+flist  += glob.glob(paths.sample_dir_path('qcdSideExt') + '/' + '*.h5')
+flist.sort()
+data_valid_read = h5py.File(flist[0], 'r') 
+const_valid = data_valid_read['jetConstituentsList'][0:params.valid_total_n,]
+features_valid = data_valid_read['eventFeatures'][0:params.valid_total_n,]
+print('>>> Normalizing features {}'.format(const_valid.shape))
 data_valid = dage_pn.events_to_input_samples(const_valid, features_valid)
 data_valid = dage_pn.normalize_features(data_valid)
 valid_ds = tf.data.Dataset.from_tensor_slices((data_valid[:,:,0:2],data_valid[:,:,:])).batch(params.batch_n, drop_remainder=True)
@@ -101,22 +139,22 @@ loss_fn = losses.threeD_loss
 # *******************************************************
 #                       build model
 # *******************************************************
-vae = vae_pn.VAE_ParticleNet(name=setting.name,conv_params=setting.conv_params, conv_params_encoder=setting.conv_params_encoder,
-                                            conv_params_decoder=setting.conv_params_decoder, with_bn=setting.conv_params_decoder, 
-                                            conv_pooling=setting.conv_pooling,conv_linking=setting.conv_linking,
-                                            input_shape=setting.input_shape,latent_dim=setting.latent_dim,ae_type=setting.ae_type,
-                                            kl_warmup_time=setting.kl_warmup_time,activation=setting.activation )
+vae = vae_pn.VAE_ParticleNet(name=settings.name,conv_params=settings.conv_params, conv_params_encoder=settings.conv_params_encoder,
+                                            conv_params_decoder=settings.conv_params_decoder, with_bn=settings.conv_params_decoder, 
+                                            conv_pooling=settings.conv_pooling,conv_linking=settings.conv_linking,
+                                            initializer=settings.initializer,
+                                            input_shape=settings.input_shape,latent_dim=settings.latent_dim,ae_type=settings.ae_type,
+                                            kl_warmup_time=settings.kl_warmup_time,activation=settings.activation,beta=settings.beta )
 vae.build()
-vae.save(path=os.path.join(experiment.model_dir,'not_trained_model'))
+#vae.save(path=os.path.join(experiment.model_dir,'not_trained_model'))
 
 # *******************************************************
 #                       train and save
 # *******************************************************
-print('>>> Launching Training')
-start_time = time.time()
+
 
 trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg)
-losses_reco, losses_valid = trainer.train(vae=vae, loss_fn=loss_fn,
+losses_train, losses_valid = trainer.train(vae=vae, loss_fn=loss_fn,
                                           train_ds=train_ds,valid_ds=valid_ds,
                                           epochs=params.epochs, model_dir=experiment.model_dir)
 
@@ -124,5 +162,7 @@ end_time = time.time()
 print(f"Runtime of the training is {end_time - start_time}")
 vae.save(path=experiment.model_dir)
 
-tra.plot_training_results(losses_reco, losses_valid, experiment.fig_dir)
+for i in range(len(losses_train)):
+    loss_train,loss_valid =  losses_train[i],losses_valid[i]
+    tra.plot_training_results(loss_train, loss_valid, experiment.model_dir,trainer.saved_loss_types[i])
 

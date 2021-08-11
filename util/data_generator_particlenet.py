@@ -5,6 +5,8 @@ import h5py
 import tensorflow as tf 
 import sklearn.utils as skutil
 import tensorflow.experimental.numpy as tnp
+import numba
+from numba import jit,njit
 
 def tf_shuffle_axis(value, axis=0, seed=None, name=None):
     perm = list(range(tf.rank(value)))
@@ -13,13 +15,19 @@ def tf_shuffle_axis(value, axis=0, seed=None, name=None):
     value = tf.transpose(value, perm=perm)
     return value
 
+@njit(parallel=True)
 def log_transform(x):
     return np.where(x==0,-10,np.log(x))
+
+@njit(parallel=True)
 def transform_min_max(x):
     return (x-np.min(x))/(np.max(x)-np.min(x))
+
+@njit(parallel=True)
 def transform_mean_std(x):
     return (x-np.mean(x))/(3*np.std(x))
 
+@njit(parallel=True)
 def mask_training_cuts(constituents, features):
     ''' get mask for training cuts requiring a jet-pt > 200'''
     jetPt_cut = 200.
@@ -48,6 +56,7 @@ def events_to_input_samples(constituents, features):
     mask_j1, mask_j2 = mask_training_cuts(constituents, features)
     return constituents_to_input_samples(constituents, mask_j1, mask_j2)
 
+@njit(parallel=True)
 def normalize_features(particles):
     idx_eta, idx_phi, idx_pt = range(3)
     # min-max normalize pt

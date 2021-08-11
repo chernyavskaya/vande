@@ -18,15 +18,17 @@ class VAE_ParticleNet(vbase.VAE):
 
   # def __init__(self, **kwargs):
      # super(VAE_ParticleNet, self).__init__(**kwargs)
-   def __init__(self, conv_params=[(15, ([20,20,20])),(15, ([20,20,20]))], conv_params_encoder=[], conv_params_decoder=[10], with_bn=1, 
+   def __init__(self, conv_params=[(15, (20,20,20)),(15, (20,20,20))], conv_params_encoder=[], conv_params_decoder=[10], with_bn=1, 
                conv_pooling='average', conv_linking='sum', input_shape=[(100,2),(100,3)], latent_dim=10,
-               ae_type='ae', kl_warmup_time=0, activation='relu', beta=0.1,kernel_ini_n=1,name='PN'): 
-      super(VAE_ParticleNet, self).__init__(name=name,conv_params=conv_params, conv_params_encoder=conv_params_encoder,
+               ae_type='ae', kl_warmup_time=0, activation='relu', beta=0.1,kernel_ini_n=1,initializer = 'glorot_normal' ,name='PN'): 
+      super(VAE_ParticleNet, self).__init__(name=name,beta=beta,conv_params=conv_params, conv_params_encoder=conv_params_encoder,
                                             conv_params_decoder=conv_params_decoder, with_bn=with_bn, 
                                             conv_pooling=conv_pooling,conv_linking=conv_linking,
                                             input_shape=input_shape,latent_dim=latent_dim,ae_type=ae_type,
-                                            kl_warmup_time=kl_warmup_time,activation=activation,kernel_ini_n=1  )
+                                            kl_warmup_time=kl_warmup_time,activation=activation,kernel_ini_n=1,
+                                            initializer=initializer )
      
+      self.initializer = self.params.initializer
       self.with_bn = self.params.with_bn if self.params.with_bn!=None else True 
       self.latent_dim = self.params.latent_dim
       self.activation = self.params.activation
@@ -71,8 +73,8 @@ class VAE_ParticleNet(vbase.VAE):
         if 'vae'.lower() in self.params.ae_type : #TO DO: add some dense layers in between
             for layer_idx in range(0,len(self.params.conv_params_encoder)):
                 layer_param  = self.params.conv_params_encoder[layer_idx]
-                x = keras.layers.Dense(self.params.latent_dim*layer_param,activation=self.activation,
-                                              kernel_initializer='glorot_normal')(x) 
+                x = keras.layers.Dense(layer_param,activation=self.activation,
+                                              kernel_initializer=self.initializer)(x) 
             self.z_mean = tf.keras.layers.Dense(self.params.latent_dim, name='z_mean')(x) #no activation
             self.z_log_var = tf.keras.layers.Dense(self.params.latent_dim, name='z_log_var')(x) #no activation
             # use reparameterization trick to push the sampling out as input
@@ -83,10 +85,10 @@ class VAE_ParticleNet(vbase.VAE):
         else : 
             for layer_idx in range(0,len(self.params.conv_params_encoder)):
                 layer_param  = self.params.conv_params_encoder[layer_idx]
-                x = keras.layers.Dense(self.params.latent_dim*layer_param,activation=self.activation,
-                                              kernel_initializer='glorot_normal')(x) 
+                x = keras.layers.Dense(layer_param,activation=self.activation,
+                                              kernel_initializer=self.initializer)(x) 
             self.z = keras.layers.Dense(self.params.latent_dim,activation=self.activation,
-                                              kernel_initializer='glorot_normal')(x) 
+                                              kernel_initializer=self.initializer)(x) 
             encoder_output = [self.z]
             encoder_model = tf.keras.Model(inputs=(points,features), outputs=encoder_output,name='encoder')
             
@@ -101,23 +103,23 @@ class VAE_ParticleNet(vbase.VAE):
         #x = klayers.Dense((self.num_points*num_dense_channels),activation=self.activation )(input_layer)
         #x = klayers.BatchNormalization(name='%s_dense_0' % (self.name))(x)
         x = keras.layers.Dense((self.num_points*num_dense_channels),
-                               kernel_initializer='glorot_normal')(input_layer) 
-        #TO DO: order of BN->Activation or the other way around can have impact, check
+                               kernel_initializer=self.initializer)(input_layer) 
         if self.with_bn:
             x = klayers.BatchNormalization(name='%s_dense_0' % (self.name))(x)
         if self.activation:
             x = klayers.Activation(self.activation, name='%s_act_0' % (self.name))(x)  
+
         x = klayers.Reshape((self.num_points,num_dense_channels), input_shape=(self.num_points*num_dense_channels,))(x)
  
         for layer_idx in range(1,len(self.params.conv_params_decoder)):
             layer_param  = self.params.conv_params_decoder[layer_idx]
             #1D and 2D  Conv layers with kernel and stride side of 1 are identical operations, but for 2D first need to expand then to squeeze
             #x = tf.squeeze(keras.layers.Conv2D(layer_param, kernel_size=(1, 1), strides=1, data_format='channels_last',
-            #                        use_bias=False if self.with_bn else True, activation=self.activation, kernel_initializer='glorot_normal',
+            #                        use_bias=False if self.with_bn else True, activation=self.activation, kernel_initializer=self.initializer,
             #                        name='%s_conv_%d' % (self.name,layer_idx))(tf.expand_dims(x, axis=2)),axis=2)  
             #x = klayers.BatchNormalization(name='%s_bn_%d' % (self.name,layer_idx))(x)
             x = klayers.Conv2D(layer_param, kernel_size=(1, 1), strides=1, data_format='channels_last',
-                                    use_bias=False if self.with_bn else True, kernel_initializer='glorot_normal',
+                                    use_bias=False if self.with_bn else True, kernel_initializer=self.initializer,
                                     name='%s_conv_%d' % (self.name,layer_idx))(tf.expand_dims(x, axis=2))
             if self.with_bn:
                 x = klayers.BatchNormalization(name='%s_bn_%d' % (self.name,layer_idx))(x)
@@ -126,7 +128,7 @@ class VAE_ParticleNet(vbase.VAE):
                 x = klayers.Activation(self.activation, name='%s_act_%d' % (self.name,layer_idx))(x)  
 
         decoder_output = tf.squeeze(klayers.Conv2D(self.num_features, kernel_size=(1, 1), strides=1, data_format='channels_last',
-                                    use_bias=True, activation=self.activation, kernel_initializer='glorot_normal',
+                                    use_bias=True, activation=self.activation, kernel_initializer=self.initializer,
                                     name='%s_conv_out' % self.name)(tf.expand_dims(x, axis=2)),axis=2) 
         decoder = tf.keras.Model(inputs=input_layer, outputs=decoder_output,name='decoder')
         decoder.summary()
@@ -156,12 +158,12 @@ class VAE_ParticleNet(vbase.VAE):
          knn_fts = funcs.knn(self.num_points, K, indices, fts)  # (N, P, K, C)
          knn_fts_center = tf.tile(tf.expand_dims(fts, axis=2), (1, 1, K, 1))  # (N, P, K, C)
          #knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C) #TO DO: Investigate why this assymetric function actually performs worse 
-         knn_fts =  tf.subtract(knn_fts, knn_fts_center) #TO DO : This edge function should be local info only
+         knn_fts =  tf.subtract(knn_fts, knn_fts_center) #TO DO : This edge function is local info only
 
          x = knn_fts
          for idx, channel in enumerate(channels):
             x = keras.layers.Conv2D(channel, kernel_size=(1, 1), strides=1, data_format='channels_last',
-                                        use_bias=False if self.with_bn else True, kernel_initializer='glorot_normal', name='%s_conv%d' % (name, idx))(x)
+                                        use_bias=False if self.with_bn else True, kernel_initializer=self.initializer, name='%s_conv%d' % (name, idx))(x)
             if self.with_bn:
                x = keras.layers.BatchNormalization(name='%s_bn%d' % (name, idx))(x)
             if self.activation:
@@ -174,12 +176,12 @@ class VAE_ParticleNet(vbase.VAE):
                 
          # shortcut of constituents features
          sc = keras.layers.Conv2D(channels[-1], kernel_size=(1, 1), strides=1, data_format='channels_last',
-                                     use_bias=False if self.with_bn else True, kernel_initializer='glorot_normal', name='%s_sc_conv' % name)(tf.expand_dims(features, axis=2))
+                                     use_bias=False if self.with_bn else True, kernel_initializer=self.initializer, name='%s_sc_conv' % name)(tf.expand_dims(features, axis=2))
          if self.with_bn:
                 sc = keras.layers.BatchNormalization(name='%s_sc_bn' % name)(sc)
          sc = tf.squeeze(sc, axis=2)
 
-         x = fts #TO DO : investigate why inclusing sum/concatenation degrades performance. In fact sensitivity to different signals is removed
+         x = fts #TODO : investigate why inclusing sum/concatenation degrades performance. In fact sensitivity to different signals is removed
          #Right now there is no use of shortcut         
 
           
@@ -217,9 +219,9 @@ class VAE_ParticleNet(vbase.VAE):
            if mask is not None:
                fts = tf.multiply(fts, mask)
 
-           #pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
+           pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
            # Flatten to format for MLP input
-           pool=klayers.Flatten(name='Flatten_PN')(fts) #seems liks Flatteneing or pooling performs the same, interesting because when flatten one has much more parameters...
+           #pool=klayers.Flatten(name='Flatten_PN')(fts) #seems liks Flatteneing or pooling performs the same, interesting because when flatten one has much more parameters...
 
            return pool
 

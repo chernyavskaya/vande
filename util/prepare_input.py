@@ -8,31 +8,6 @@ import pofah.util.utility_fun as utfu
 
 
 
-def log_transform(x):
-    return np.where(x==0,-10,np.log(x))
-
-def transform_min_max(x):
-    return (x-np.min(x))/(np.max(x)-np.min(x))
-
-def transform_mean_std(x):
-    return (x-np.mean(x))/(3*np.std(x))
-
-
-def mask_training_cuts(constituents, features):
-    ''' get mask for training cuts requiring a jet-pt > 200'''
-    jetPt_cut = 200.
-    idx_j1Pt, idx_j2Pt = 1, 6
-    idx_feat_pt = 2
-    mask_j1 = features[:, idx_j1Pt] > jetPt_cut
-    mask_j2 = features[:, idx_j2Pt] > jetPt_cut
-    ''' normalize jet constituents pt to the jet pt'''
-    for jet_idx in [0,1]:
-        constituents[:,jet_idx,:,idx_feat_pt] = np.where(features[:, idx_j1Pt,None]!=0, constituents[:,jet_idx,:,idx_feat_pt]/features[:, idx_j1Pt,None],0.) 
-    ''' log transform pt of constituents'''
-    for jet_idx in [0,1]:
-        constituents[:,jet_idx,:,idx_feat_pt] = log_transform(constituents[:,jet_idx,:,idx_feat_pt]) 
-    return mask_j1, mask_j2
-
 def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarray
         const_j1 = constituents[:,0,:,:][mask_j1]
         const_j2 = constituents[:,1,:,:][mask_j2]

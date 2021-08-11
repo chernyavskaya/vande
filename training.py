@@ -166,13 +166,14 @@ class TrainerParticleNet(Trainer):
         self.lambda_reg = lambda_reg
         self.train_stop = Stopper(optimizer, min_delta, patience, max_lr_decay)
         self.best_loss_so_far = None        
-        
+        self.saved_loss_types = ['tot','reco','kl']
+
 
     @tf.function
     def training_step(self, model, loss_fn_reco, x_batch):
         (coord_in, feats_in)  = x_batch
        # coord_in, feats_in  = x_batch[:,:,0:2], x_batch[:,:,:]
-
+       
         with tf.GradientTape() as tape:
             # Run the forward pass
             predictions = model(x_batch, training=True)  # Logits for this minibatch
@@ -197,6 +198,40 @@ class TrainerParticleNet(Trainer):
         kl_loss = tf.math.reduce_mean(model.losses)
         return reco_loss, kl_loss
 
+    def train(self, vae, loss_fn, train_ds, valid_ds, epochs, model_dir):
+
+        model = vae.model
+
+        losses_tot_train = []
+        losses_tot_valid = []
+        losses_reco_train = []
+        losses_reco_valid = []
+        losses_kl_train = []
+        losses_kl_valid = []
+
+
+        for epoch in range(epochs):
+            now = datetime.datetime.today()
+            print("\n### [{}.{} {}:{}:{}] Start of epoch {}".format(now.day, now.month, now.hour, now.minute, now.second, epoch))
+            start_time = time.time()
+            training_loss_reco, training_loss_kl = self.training_epoch(model, loss_fn, train_ds)
+            validation_loss_reco, validation_loss_kl = self.validation_epoch(model, loss_fn, valid_ds)
+            validation_loss_tot = validation_loss_reco + self.beta * validation_loss_kl
+            losses_tot_train.append(training_loss_reco + self.beta * training_loss_kl)
+            losses_tot_valid.append(validation_loss_reco + self.beta * validation_loss_kl) 
+            losses_reco_train.append(training_loss_reco )
+            losses_reco_valid.append(validation_loss_reco )
+            losses_kl_train.append( training_loss_kl)
+            losses_kl_valid.append( validation_loss_kl) 
+            # print epoch results
+            print('### [Epoch {} - {:.2f} sec]: train loss reco {:.3f} kl {:.3f}, val loss reco {:.3f} kl {:.3f} (mean / batch) ###'.format(epoch, time.time()-start_time, training_loss_reco, training_loss_kl, validation_loss_reco, validation_loss_kl))
+            if self.train_stop.check_stop_training(losses_tot_valid):
+                print('!!! stopping training !!!')
+                break
+            if epoch > 4 and self.check_best_model(validation_loss_tot):
+                print('saving best so far model with tot valid loss, reco {:.3f} and kl loss {:.3f}'.format(validation_loss_reco, validation_loss_kl))
+                vae.save(os.path.join(model_dir, 'best_so_far'))
+        return (losses_tot_train,losses_reco_train,losses_kl_train), (losses_tot_valid, losses_reco_valid, losses_kl_valid)
 
 # plot training results
 def plot_training_results(losses_train, losses_valid, fig_dir, plot_suffix=''):
