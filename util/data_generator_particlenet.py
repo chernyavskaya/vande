@@ -4,17 +4,21 @@ import pofah.util.utility_fun as utfu
 import h5py
 import tensorflow as tf 
 import sklearn.utils as skutil
+import tensorflow.experimental.numpy as tnp
 
+def tf_shuffle_axis(value, axis=0, seed=None, name=None):
+    perm = list(range(tf.rank(value)))
+    perm[axis], perm[0] = perm[0], perm[axis]
+    value = tf.random.shuffle(tf.transpose(value, perm=perm))
+    value = tf.transpose(value, perm=perm)
+    return value
 
 def log_transform(x):
     return np.where(x==0,-10,np.log(x))
-
 def transform_min_max(x):
     return (x-np.min(x))/(np.max(x)-np.min(x))
-
 def transform_mean_std(x):
     return (x-np.mean(x))/(3*np.std(x))
-
 
 def mask_training_cuts(constituents, features):
     ''' get mask for training cuts requiring a jet-pt > 200'''
@@ -23,9 +27,10 @@ def mask_training_cuts(constituents, features):
     idx_feat_pt = 2
     mask_j1 = features[:, idx_j1Pt] > jetPt_cut
     mask_j2 = features[:, idx_j2Pt] > jetPt_cut
-    ''' normalize jet constituents pt to the jet pt'''
-    for jet_idx in [0,1]:
-        constituents[:,jet_idx,:,idx_feat_pt] = np.where(features[:, idx_j1Pt,None]!=0, constituents[:,jet_idx,:,idx_feat_pt]/features[:, idx_j1Pt,None],0.) 
+    ''' normalize jet constituents pt to the jet pt''' # TODO : bring this back eventually
+    #constituents[:,0,:,idx_feat_pt] = np.where(features[:, idx_j1Pt,None]!=0, constituents[:,0,:,idx_feat_pt]/features[:, idx_j1Pt,None],0.)
+    #constituents[:,1,:,idx_feat_pt] = np.where(features[:, idx_j2Pt,None]!=0, constituents[:,1,:,idx_feat_pt]/features[:, idx_j2Pt,None],0.)  
+
     ''' log transform pt of constituents'''
     for jet_idx in [0,1]:
         constituents[:,jet_idx,:,idx_feat_pt] = log_transform(constituents[:,jet_idx,:,idx_feat_pt]) 
@@ -35,22 +40,21 @@ def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarr
         const_j1 = constituents[:,0,:,:][mask_j1]
         const_j2 = constituents[:,1,:,:][mask_j2]
         samples = np.vstack([const_j1, const_j2])
-        np.random.shuffle(samples) #this will only shuffle jets
-        samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though...
+      #  np.random.shuffle(samples) #this will only shuffle jets
+      #  samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though, use tensorshuffle instead
         return samples  
 
 def events_to_input_samples(constituents, features):
     mask_j1, mask_j2 = mask_training_cuts(constituents, features)
     return constituents_to_input_samples(constituents, mask_j1, mask_j2)
 
-
 def normalize_features(particles):
     idx_eta, idx_phi, idx_pt = range(3)
     # min-max normalize pt
     particles[:,:,idx_pt] = transform_min_max(particles[:,:,idx_pt]) 
     # standard normalize angles, then min - max to have all features in the same range, and make masking easier
-    particles[:,:,idx_eta] = transform_min_max(transform_mean_std(particles[:,:,idx_eta]))
-    particles[:,:,idx_phi] = transform_min_max(transform_mean_std(particles[:,:,idx_phi]))
+    particles[:,:,idx_eta] = transform_mean_std(particles[:,:,idx_eta]) #transform_min_max()
+    particles[:,:,idx_phi] = transform_mean_std(particles[:,:,idx_phi]) #transform_min_max()
     return particles
 
 
@@ -95,6 +99,8 @@ class DataGenerator():
         generator.close()
 
 
+
+
 class DataGeneratorDirect():
 
     def __init__(self, path, sample_part_n=1e4, sample_max_n=None,batch_size=256, **cuts):
@@ -117,12 +123,17 @@ class DataGeneratorDirect():
         print('path = ',self.path)
         # create new file data-reader, each time data-generator is called (otherwise file-data-reader generation not reset)
         generator = dare.DataReader(self.path).generate_event_parts_from_dir(parts_n=self.sample_part_n, **self.cuts)
+        print('Samples read')
+
 
         samples_read_n = 0
+
         # loop through whole dataset, reading sample_part_n events at a time
         for constituents, features in generator:
             samples = events_to_input_samples(constituents, features)
             samples = normalize_features(samples)
+            samples = tf_shuffle_axis(tf.convert_to_tensor(samples, dtype=tf.float32),axis=1) 
+            
 
             num_to_process = self.sample_max_n if self.sample_max_n is not None else samples.shape[0]
             if samples.shape[0] < num_to_process : num_to_process = samples.shape[0]
@@ -183,6 +194,7 @@ class DataGeneratorDirectPrepr():
 
 
 class DataGeneratorPerFile():
+    ''' not sure this works '''
 
     def __init__(self, path, sample_max_n=None,batch_size=256, **cuts):
         self.path = path

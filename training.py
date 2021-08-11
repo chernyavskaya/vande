@@ -171,7 +171,8 @@ class TrainerParticleNet(Trainer):
     @tf.function
     def training_step(self, model, loss_fn_reco, x_batch):
         (coord_in, feats_in)  = x_batch
-        
+       # coord_in, feats_in  = x_batch[:,:,0:2], x_batch[:,:,:]
+
         with tf.GradientTape() as tape:
             # Run the forward pass
             predictions = model(x_batch, training=True)  # Logits for this minibatch

@@ -23,21 +23,9 @@ class VAE(ABC):
         self.encoder = self.build_encoder(*x_mean_stdev)
         self.decoder = self.build_decoder(*x_mean_stdev)
         # link encoder and decoder to full vae model
-        inputs = []
-        if type(self.params.input_shape) is tuple:
-            inputs.append(tf.keras.layers.Input(shape=self.params.input_shape, dtype=tf.float32, name='model_input'))
-        else :
-            for in_idx,in_shape in enumerate(self.params.input_shape):
-                inputs.append(tf.keras.layers.Input(shape=in_shape, dtype=tf.float32, name='model_input_%d'%in_idx))
-        if not (hasattr(self.params, 'setting')):
-            self.z, self.z_mean, self.z_log_var = self.encoder(inputs)
-            outputs = self.decoder(self.z)  # link encoder output to decoder
-        else:
-            encoder_output = self.encoder(inputs)
-            if 'vae'.lower() in self.params.setting.ae_type :
-                self.z, self.z_mean, self.z_log_var = encoder_output
-            else : self.z = encoder_output
-            outputs = self.decoder(self.z)  # link encoder output to decoder
+        inputs = tf.keras.layers.Input(shape=self.params.input_shape, dtype=tf.float32, name='model_input')
+        self.z, self.z_mean, self.z_log_var = self.encoder(inputs)
+        outputs = self.decoder(self.z)  # link encoder output to decoder
         # instantiate VAE model
         self.model = tf.keras.Model(inputs, outputs, name='vae')
         self.model.summary()

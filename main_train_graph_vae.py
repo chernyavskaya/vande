@@ -25,58 +25,42 @@ import time
 # ********************************************************
 #       runtime params
 # ********************************************************
-Parameters = namedtuple('Parameters', 'run_n input_shape kernel_sz kernel_ini_n beta epochs train_total_n gen_part_n valid_total_n batch_n z_sz activation initializer learning_rate max_lr_decay lambda_reg')
-params = Parameters(run_n=1, 
-                    input_shape=[(100,2),(100,3)],
-                    beta=0.1, 
-                    epochs=2, 
-                    train_total_n=int(7e3), 
-                    valid_total_n=int(7e3), 
-                    gen_part_n=int(2e3), 
-                    batch_n=256, 
-                    z_sz=12, #latent dimension
-                    activation=klayers.LeakyReLU(alpha=0.1),
-                    learning_rate=0.001,
-                    max_lr_decay=8, 
-                    lambda_reg=0.0, # 'L1L2'
-                    initializer='he_uniform', #TO DO :incorporate to particle net
-
-                    kernel_sz=(1,3),  #TODO : not used but needed 
-                    kernel_ini_n=12 #TODO : not used but needed 
-                    )
+RunParameters = namedtuple('Parameters', 'run_n  \
+ epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg')
+params = RunParameters(run_n=113, 
+                       epochs=2, 
+                       train_total_n=int(1e6), 
+                       valid_total_n=int(2e2), 
+                       gen_part_n=int(5e3), 
+                       batch_n=50, 
+                       learning_rate=0.001,
+                       max_lr_decay=8, 
+                       lambda_reg=0.0) # 'L1L2'
 
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 paths = safa.SamplePathDirFactory(sdi.path_dict)
 
-class _DotDict:
-    pass
+# ********************************************************
+#       Models params
+# ********************************************************
+Parameters = namedtuple('Setting', 'name  input_shape  beta activation initializer conv_params conv_params_encoder conv_params_decoder with_bn conv_pooling conv_linking latent_dim ae_type kl_warmup_time kernel_ini_n')
+setting = Parameters(name = 'PN',
+                     input_shape=[(100,2),(100,3)],
+                     beta=0.1, 
+                     activation=klayers.LeakyReLU(alpha=0.1),
+                     initializer='he_uniform',
+                      # conv_params: list of tuple in the format (K, (C1, C2, C3))
+                     conv_params = [(15, ([20,20,20])),(15, ([20,20,20]))],
+                     conv_params_encoder = [],
+                     conv_params_decoder = [10],  #[32,16,8]
+                     with_bn = True,
+                     conv_pooling = 'average',
+                     conv_linking = 'sum' ,#concat or sum
+                     latent_dim = 3,
+                     ae_type = 'vae',  #ae or vae 
+                     kl_warmup_time = 10,
+                     kernel_ini_n = 0)
 
-nodes_n = params.input_shape[1][0]
-feat_sz = params.input_shape[1][1]
-
-setting = _DotDict()
-setting.name = 'PN'
- # conv_params: list of tuple in the format (K, (C1, C2, C3))
-setting.conv_params = [
-   (15, ([20,20,20])),
-  #      (7, (32, 32, 32)),
-  #      (7, (64, 64, 64)),
-        ]
-#setting.conv_params_decoder = [60,32,16,8, 5]
-setting.conv_params_encoder_input = 20 #64 #20
-setting.conv_params_encoder = []
-setting.conv_params_decoder = [10]  #[32,16,8]
-setting.with_bn = True
-# conv_pooling: 'average' or 'max' #indeed average seems to perform better
-setting.conv_pooling = 'average'
-setting.conv_linking = 'sum' #concat or sum
-setting.num_points = nodes_n #num of original consituents
-setting.num_features = feat_sz #num of original features
-setting.input_shapes = {'points': [nodes_n,feat_sz-1],'features':[nodes_n,feat_sz]}
-setting.latent_dim = params.z_sz
-setting.ae_type = 'vae'  #ae or vae 
-setting.kl_warmup_time = 0 
-setting.activation = params.activation 
 
 # ********************************************************
 #       prepare training (generator) and validation data
@@ -94,8 +78,8 @@ data_train_generator = dage_pn.DataGeneratorDirect(path=paths.sample_dir_path('q
                                                   ) # generate 10 M jet samples
 train_ds = tf.data.Dataset.from_generator(data_train_generator, 
                                          (tf.float32,tf.float32), 
-                                         (tf.TensorShape([None,params.input_shape[0][0],params.input_shape[0][1]]),
-                                          tf.TensorShape([None,params.input_shape[1][0],params.input_shape[1][1]]))
+                                         (tf.TensorShape([None,setting.input_shape[0][0],setting.input_shape[0][1]]),
+                                          tf.TensorShape([None,setting.input_shape[1][0],setting.input_shape[1][1]]))
                                          )
 train_ds = train_ds.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
@@ -117,9 +101,13 @@ loss_fn = losses.threeD_loss
 # *******************************************************
 #                       build model
 # *******************************************************
-vae = vae_pn.VAE_ParticleNet(beta=params.beta,setting=setting,kernel_ini_n=params.kernel_ini_n,name='PN_AE_',input_shape=params.input_shape)
-a = [1] #TODO : fix this hack
-vae.build(a)
+vae = vae_pn.VAE_ParticleNet(name=setting.name,conv_params=setting.conv_params, conv_params_encoder=setting.conv_params_encoder,
+                                            conv_params_decoder=setting.conv_params_decoder, with_bn=setting.conv_params_decoder, 
+                                            conv_pooling=setting.conv_pooling,conv_linking=setting.conv_linking,
+                                            input_shape=setting.input_shape,latent_dim=setting.latent_dim,ae_type=setting.ae_type,
+                                            kl_warmup_time=setting.kl_warmup_time,activation=setting.activation )
+vae.build()
+vae.save(path=os.path.join(experiment.model_dir,'not_trained_model'))
 
 # *******************************************************
 #                       train and save
@@ -127,14 +115,14 @@ vae.build(a)
 print('>>> Launching Training')
 start_time = time.time()
 
-trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=params.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg)
+trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg)
 losses_reco, losses_valid = trainer.train(vae=vae, loss_fn=loss_fn,
                                           train_ds=train_ds,valid_ds=valid_ds,
                                           epochs=params.epochs, model_dir=experiment.model_dir)
 
 end_time = time.time()
 print(f"Runtime of the training is {end_time - start_time}")
+vae.save(path=experiment.model_dir)
 
 tra.plot_training_results(losses_reco, losses_valid, experiment.fig_dir)
 
-vae.save(path=experiment.model_dir)
