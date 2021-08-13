@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
-
+import numpy as np
 
 def plot_hist( data, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     fig = plt.figure( )
@@ -11,6 +11,29 @@ def plot_hist( data, xlabel, ylabel, title, plotname='', legend=[], ylogscale=Tr
     fig.savefig('fig/' + plotname + '.png')
     plt.close()
 
+def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
+    fig = plt.figure( )
+    max_score = np.max([1.2*np.quantile(loss,0.98) for loss in datas])
+    min_score = np.min([0.8*np.quantile(loss,0.02) for loss in datas])
+    kwargs={'linewidth':2.3, 'fill':False, 'density':True,'histtype':'step'}
+    for i,data in enumerate(datas):
+        bins = 70
+        if ylogscale:
+            plt.semilogy( nonpositive='clip')
+        if i==0:
+            _,bins,_ = plt.hist( data, bins=bins, range=(min_score,max_score),label=legend[i], **kwargs)
+        else :
+            plt.hist( data, bins=bins, linestyle='--', label=legend[i],**kwargs)
+    plt.ylabel( ylabel )
+    plt.xlabel( xlabel )
+    plt.title( title, fontsize=10 )
+    plt.tick_params(axis='both', which='minor', labelsize=8)
+    if legend:
+        plt.legend(bbox_to_anchor=(1., 1.),fontsize=15)
+    plt.tight_layout()
+    fig.savefig(plotname + '.png')
+    fig.savefig(plotname + '.pdf')
+    plt.close()
 
 def plot_hist_on_axis( ax, data, xlabel, ylabel='count', title='', legend=[], ylogscale=True ):
     bin_num = 70

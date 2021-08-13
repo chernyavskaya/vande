@@ -42,8 +42,8 @@ def plot_roc(neg_class_losses, pos_class_losses, legend=[], title='ROC', legend_
     plt.title(title)
     if fig_dir:
         fig.savefig(os.path.join(fig_dir, plot_name + '.png'), bbox_inches='tight' )
-    #plt.close(fig)
-    plt.show()
+    plt.close(fig)
+    #plt.show()
 
     return aucs
 

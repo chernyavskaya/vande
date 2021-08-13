@@ -7,7 +7,7 @@ from matplotlib import pyplot as plt
 import vande.vae.losses as losses
 
 class Stopper():
-    def __init__(self, optimizer, min_delta=0.01, patience=4, max_lr_decay=10, lr_decay_factor=0.3):
+    def __init__(self, optimizer, min_delta=0.01, patience=4, max_lr_decay=10, lr_decay_factor=0.1):
         self.optimizer = optimizer
         self.min_delta = min_delta
         self.patience = patience

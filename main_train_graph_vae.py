@@ -23,6 +23,8 @@ import training as tra
 import time
 import h5py
 import json
+import matplotlib
+matplotlib.use('Agg')
 
 
 # ********************************************************
@@ -30,13 +32,13 @@ import json
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg generator')
-params = RunParameters(run_n=2, 
-                       epochs=2, 
-                       train_total_n=int(4e3 ), 
-                       valid_total_n=int(4e3), 
-                       gen_part_n=int(1e5), 
+params = RunParameters(run_n=12, 
+                       epochs=20, 
+                       train_total_n=int(5e5 ),  #2e6 
+                       valid_total_n=int(1e5), #1e5
+                       gen_part_n=int(1e5), #1e5
                        batch_n=256, 
-                       learning_rate=0.001,
+                       learning_rate=0.0001,
                        max_lr_decay=5, 
                        lambda_reg=0.0,# 'L1L2'
                        generator=0)  #run generator or not
@@ -50,7 +52,7 @@ paths = safa.SamplePathDirFactory(sdi.path_dict)
 Parameters = namedtuple('Settings', 'name  input_shape  beta activation initializer conv_params conv_params_encoder conv_params_decoder with_bn conv_pooling conv_linking latent_dim ae_type kl_warmup_time kernel_ini_n')
 settings = Parameters(name = 'PN',
                      input_shape=[(100,2),(100,3)],
-                     beta=1., 
+                     beta=0.01, 
                      activation=klayers.LeakyReLU(alpha=0.1),
                      initializer='glorot_normal', 
                       # conv_params: list of tuple in the format (K, (C1, C2, C3))
@@ -66,7 +68,7 @@ settings = Parameters(name = 'PN',
                      with_bn = True,
                      conv_pooling = 'average',
                      conv_linking = 'sum' ,#concat or sum #currently shorcut is removed
-                     latent_dim = 3,
+                     latent_dim = 5,
                      ae_type = 'vae',  #ae or vae 
                      kl_warmup_time = 10, #currently noy used
                      kernel_ini_n = 0) #should be/will be removed at next iteration
@@ -103,31 +105,15 @@ else :
     # training (full tensor, 1M events -> 2M samples)
     print('>>> Preparing training dataset')
     #const_train, _, features_train, _ = dare.DataReader(path=paths.sample_dir_path('qcdSide')).read_events_from_dir(read_n=params.train_total_n, **cuts.global_cuts)
-    flist = []
-    flist  += glob.glob(paths.sample_dir_path('qcdSide') + '/' + '*.h5')
-    flist.sort()
-    data_train_read = h5py.File(flist[0], 'r') 
-    const_train = data_train_read['jetConstituentsList'][0:params.train_total_n,]
-    features_train = data_train_read['eventFeatures'][0:params.train_total_n,]
-    print('>>> Normalizing features, shape {}'.format(const_train.shape))
-    data_train = dage_pn.events_to_input_samples(const_train, features_train)
-    data_train = dage_pn.normalize_features(data_train)
-    train_ds = tf.data.Dataset.from_tensor_slices((data_train[:,:,0:2],data_train[:,:,:])).batch(params.batch_n, drop_remainder=True)
+    data_train = dage_pn.get_data_from_file(path=paths.sample_dir_path('qcdSide'),file_num=0,end=params.train_total_n)
+    train_ds = tf.data.Dataset.from_tensor_slices((data_train[:,:,0:2],data_train[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
      #TODO : it has to be shuffled! right now it is shuffled only inside generator
     
 # validation (full tensor, 1M events -> 2M samples)
 print('>>> Preparing validation dataset')
 #const_valid, _, features_valid, _ = dare.DataReader(path=paths.sample_dir_path('qcdSideExt')).read_events_from_dir(read_n=params.valid_total_n, **cuts.global_cuts)
-flist = []
-flist  += glob.glob(paths.sample_dir_path('qcdSideExt') + '/' + '*.h5')
-flist.sort()
-data_valid_read = h5py.File(flist[0], 'r') 
-const_valid = data_valid_read['jetConstituentsList'][0:params.valid_total_n,]
-features_valid = data_valid_read['eventFeatures'][0:params.valid_total_n,]
-print('>>> Normalizing features {}'.format(const_valid.shape))
-data_valid = dage_pn.events_to_input_samples(const_valid, features_valid)
-data_valid = dage_pn.normalize_features(data_valid)
-valid_ds = tf.data.Dataset.from_tensor_slices((data_valid[:,:,0:2],data_valid[:,:,:])).batch(params.batch_n, drop_remainder=True)
+data_valid = dage_pn.get_data_from_file(path=paths.sample_dir_path('qcdSideExt'),file_num=0,end=params.valid_total_n)
+valid_ds = tf.data.Dataset.from_tensor_slices((data_valid[:,:,0:2],data_valid[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
 # *******************************************************
 #                       training options

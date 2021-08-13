@@ -185,11 +185,11 @@ class VAE_ParticleNet(vbase.VAE):
          #Right now there is no use of shortcut         
 
           
-       #  x = sc + fts #sum by default, original PN. It probably should be added after latent space
-       #  if self.params.conv_linking == 'concat': #concat or sum
-       #     x = tf.concat([sc,fts],axis=2) 
-       #  if self.activation:
-       #     x =  keras.layers.Activation(self.activation, name='%s_sc_act' % name)(x)  # (N, P, C') #TO DO : try with concatenation instead of sum
+        # x = sc + fts #sum by default, original PN. It probably should be added after latent space
+        # if self.params.conv_linking == 'concat': #concat or sum
+        #    x = tf.concat([sc,fts],axis=2) 
+        # if self.activation:
+        #    x =  keras.layers.Activation(self.activation, name='%s_sc_act' % name)(x)  # (N, P, C') #TO DO : try with concatenation instead of sum
          return x
 
 

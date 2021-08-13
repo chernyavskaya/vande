@@ -4,9 +4,10 @@ import pofah.util.utility_fun as utfu
 import h5py
 import tensorflow as tf 
 import sklearn.utils as skutil
-import tensorflow.experimental.numpy as tnp
+#import tensorflow.experimental.numpy as tnp
 import numba
 from numba import jit,njit
+import glob
 
 def tf_shuffle_axis(value, axis=0, seed=None, name=None):
     perm = list(range(tf.rank(value)))
@@ -48,8 +49,8 @@ def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarr
         const_j1 = constituents[:,0,:,:][mask_j1]
         const_j2 = constituents[:,1,:,:][mask_j2]
         samples = np.vstack([const_j1, const_j2])
-      #  np.random.shuffle(samples) #this will only shuffle jets
-      #  samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though, use tensorshuffle instead
+       # np.random.shuffle(samples) #this will only shuffle jets
+        samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though, use tensorshuffle instead
         return samples  
 
 def events_to_input_samples(constituents, features):
@@ -66,6 +67,20 @@ def normalize_features(particles):
     particles[:,:,idx_phi] = transform_mean_std(particles[:,:,idx_phi]) #transform_min_max()
     return particles
 
+
+def get_data_from_file(path='',file_num=0,end=10000):
+    flist = []
+    flist  += glob.glob(path + '/' + '*.h5')
+    flist.sort()
+    print('Opening file : {}'.format(flist[file_num]))
+    data_train_read = h5py.File(flist[file_num], 'r') 
+    const_train = data_train_read['jetConstituentsList'][0:end,]
+    features_train = data_train_read['eventFeatures'][0:end,]
+    print('>>> Normalizing features')
+    data_train = events_to_input_samples(const_train, features_train)
+    data_train = normalize_features(data_train)
+    print('Training data size {}'.format(data_train.shape[0]))
+    return data_train
 
 
 class DataGenerator():
