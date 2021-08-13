@@ -13,11 +13,11 @@ def plot_hist( data, xlabel, ylabel, title, plotname='', legend=[], ylogscale=Tr
 
 def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     fig = plt.figure( )
-    max_score = np.max([1.2*np.quantile(loss,0.98) for loss in datas])
-    min_score = np.min([0.8*np.quantile(loss,0.02) for loss in datas])
+    max_score = np.max([1.1*np.quantile(loss,0.95) for loss in datas])
+    min_score = np.min([0.9*np.quantile(loss,0.05) for loss in datas])
     kwargs={'linewidth':2.3, 'fill':False, 'density':True,'histtype':'step'}
+    bins = 70
     for i,data in enumerate(datas):
-        bins = 70
         if ylogscale:
             plt.semilogy( nonpositive='clip')
         if i==0:

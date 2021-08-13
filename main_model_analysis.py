@@ -31,8 +31,8 @@ import vande.analysis.analysis_roc as ar
 # ********************************************************
 #       runtime params
 # ********************************************************
-RunParameters = namedtuple('Parameters', 'run_n test_total_n ')
-params = RunParameters(run_n=9, test_total_n=int(1e4))  #run generator or not
+RunParameters = namedtuple('Parameters', 'run_n test_total_n batch_n')
+params = RunParameters(run_n=7, test_total_n=int(5e4), batch_n=500)  #times 2, because two jets  
 
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 paths = safa.SamplePathDirFactory(sdi.path_dict)
@@ -47,12 +47,12 @@ print('>>> Preparing testing BG dataset')
 particles_dict = {}
 particles_dict['input_feats'] = {} # dataset prepared for inference
 data_test = dage_pn.get_data_from_file(path=paths.sample_dir_path('qcdSideExt'),file_num=-1,end=params.test_total_n)
-particles_dict['input_feats']['BG'] = tf.data.Dataset.from_tensor_slices((data_test[:,:,0:2],data_test[:,:,:])).batch(params.test_total_n, drop_remainder=True).prefetch(buffer_size=1)
+particles_dict['input_feats']['BG'] = tf.data.Dataset.from_tensor_slices((data_test[:,:,0:2],data_test[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=1)
 
 sig_types = 'GtoWW35na,GtoWW15na,GtoWW35br,GtoWW15br'.split(',')
 for sig in sig_types:
     data_test_sig = dage_pn.get_data_from_file(path=paths.sample_dir_path(sig),file_num=-1,end=params.test_total_n)
-    sig_ds = tf.data.Dataset.from_tensor_slices((data_test_sig[:,:,0:2],data_test_sig[:,:,:])).batch(params.test_total_n, drop_remainder=True).prefetch(buffer_size=1)
+    sig_ds = tf.data.Dataset.from_tensor_slices((data_test_sig[:,:,0:2],data_test_sig[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=1)
     particles_dict['input_feats'][sig]= sig_ds
 
 
@@ -91,7 +91,7 @@ for loss in ['loss_tot','loss_kl','loss_reco']:
      datas.append(particles_dict[loss]['BG'])
      for sig in sig_types:
          datas.append(particles_dict[loss][sig])
-     plot.plot_hist_many(datas, loss ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}'.format(fig_dir,loss), legend=['BG']+sig_types, ylogscale=True)
+     plot.plot_hist_many(datas, loss.replace('_',' ') ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}'.format(fig_dir,loss), legend=['BG']+sig_types, ylogscale=True)
 
 # *******************************************************
 #                       plotting ROCs 
@@ -101,8 +101,8 @@ for loss in ['loss_tot','loss_kl','loss_reco']:
     pos_class_losses = []
     for sig in sig_types:
        pos_class_losses.append(particles_dict[loss][sig])
-       ar.plot_roc( neg_class_losses, pos_class_losses, legend=sig_types, title='run_n={}'.format(params.run_n),
-            plot_name='ROC', fig_dir=fig_dir,log_x=False )
+    ar.plot_roc( neg_class_losses, pos_class_losses, legend=sig_types, title='run_n={},from {}'.format(params.run_n,loss.replace('_',' ')),
+            plot_name='ROC_{}'.format(loss), fig_dir=fig_dir,log_x=False )
 
 
 # *******************************************************
