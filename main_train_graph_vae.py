@@ -32,13 +32,13 @@ matplotlib.use('Agg')
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg generator')
-params = RunParameters(run_n=12, 
-                       epochs=20, 
-                       train_total_n=int(5e5 ),  #2e6 
+params = RunParameters(run_n=16, 
+                       epochs=40, 
+                       train_total_n=int(2e6 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
                        gen_part_n=int(1e5), #1e5
                        batch_n=256, 
-                       learning_rate=0.0001,
+                       learning_rate=0.001,
                        max_lr_decay=5, 
                        lambda_reg=0.0,# 'L1L2'
                        generator=0)  #run generator or not
@@ -68,8 +68,8 @@ settings = Parameters(name = 'PN',
                      with_bn = True,
                      conv_pooling = 'average',
                      conv_linking = 'sum' ,#concat or sum #currently shorcut is removed
-                     latent_dim = 5,
-                     ae_type = 'vae',  #ae or vae 
+                     latent_dim = 3,
+                     ae_type = 'ae',  #ae or vae 
                      kl_warmup_time = 10, #currently noy used
                      kernel_ini_n = 0) #should be/will be removed at next iteration
 
@@ -139,7 +139,7 @@ vae.build()
 # *******************************************************
 
 
-trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg)
+trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg,ae_type=settings.ae_type)
 losses_train, losses_valid = trainer.train(vae=vae, loss_fn=loss_fn,
                                           train_ds=train_ds,valid_ds=valid_ds,
                                           epochs=params.epochs, model_dir=experiment.model_dir)

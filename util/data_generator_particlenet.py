@@ -156,7 +156,7 @@ class DataGeneratorDirect():
         for constituents, features in generator:
             samples = events_to_input_samples(constituents, features)
             samples = normalize_features(samples)
-            samples = tf_shuffle_axis(tf.convert_to_tensor(samples, dtype=tf.float32),axis=1) 
+            #samples = tf_shuffle_axis(tf.convert_to_tensor(samples, dtype=tf.float32),axis=1) 
             
 
             num_to_process = self.sample_max_n if self.sample_max_n is not None else samples.shape[0]

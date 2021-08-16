@@ -11,10 +11,15 @@ def plot_hist( data, xlabel, ylabel, title, plotname='', legend=[], ylogscale=Tr
     fig.savefig('fig/' + plotname + '.png')
     plt.close()
 
+def plot_features( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
+    num_feats = datas[0].shape[-1]
+    for i in range(num_feats):
+        plot_hist_many( [data[:,i] for data in datas], xlabel+' {}'.format(i), ylabel, title, plotname=plotname+'_{}'.format(i), legend=legend, ylogscale=ylogscale )
+
 def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     fig = plt.figure( )
-    max_score = np.max([1.1*np.quantile(loss,0.95) for loss in datas])
-    min_score = np.min([0.9*np.quantile(loss,0.05) for loss in datas])
+    max_score = np.max([1.1*np.quantile(x,0.95) for x in datas])
+    min_score = np.min([0.9*np.quantile(x,0.05) for x in datas])
     kwargs={'linewidth':2.3, 'fill':False, 'density':True,'histtype':'step'}
     bins = 70
     for i,data in enumerate(datas):
@@ -34,6 +39,23 @@ def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogsc
     fig.savefig(plotname + '.png')
     fig.savefig(plotname + '.pdf')
     plt.close()
+
+def plot_scatter_many( datas, xlabel, ylabel, title, plotname='', legend=[] ):
+    fig = plt.figure( )
+    for i,data in enumerate(datas):
+        plt.scatter( data[:,0],data[:,1],label=legend[i], alpha=0.3)
+    plt.ylabel( ylabel )
+    plt.xlabel( xlabel )
+    plt.title( title, fontsize=10 )
+    plt.tick_params(axis='both', which='minor', labelsize=8)
+    if legend:
+        plt.legend(bbox_to_anchor=(1., 1.),fontsize=15)
+    plt.tight_layout()
+    fig.savefig(plotname + '.png')
+    fig.savefig(plotname + '.pdf')
+    plt.close()
+
+
 
 def plot_hist_on_axis( ax, data, xlabel, ylabel='count', title='', legend=[], ylogscale=True ):
     bin_num = 70

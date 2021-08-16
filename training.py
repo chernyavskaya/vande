@@ -156,7 +156,7 @@ class Trainer():
 
 class TrainerParticleNet(Trainer):
 
-    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0):
+    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0, ae_type='vae'):
         super(TrainerParticleNet, self).__init__(self)
         self.optimizer = optimizer
         self.beta = beta
@@ -167,6 +167,7 @@ class TrainerParticleNet(Trainer):
         self.train_stop = Stopper(optimizer, min_delta, patience, max_lr_decay)
         self.best_loss_so_far = None        
         self.saved_loss_types = ['tot','reco','kl']
+        self.ae_type = ae_type
 
 
     @tf.function
@@ -179,9 +180,12 @@ class TrainerParticleNet(Trainer):
             predictions = model(x_batch, training=True)  # Logits for this minibatch
             # Compute the loss value for this minibatch.
             reco_loss = tf.math.reduce_mean(loss_fn_reco(feats_in, predictions))
-            kl_loss = tf.math.reduce_mean(model.losses) # get kl loss registered in sampling layer
+            if 'vae'.lower() in self.ae_type :
+                kl_loss = tf.math.reduce_mean(model.losses) # get kl loss registered in sampling layer
+            else :
+                kl_loss = tf.zeros( reco_loss.shape, dtype=tf.dtypes.float32)
             reg_loss = losses.l2_regularize(model.trainable_weights)
-            total_loss = reco_loss + self.beta * kl_loss + self.lambda_reg * reg_loss
+            total_loss = (1-self.beta)*reco_loss + self.beta * kl_loss + self.lambda_reg * reg_loss
         # the gradients of the trainable variables with respect to the loss.
         grads = tape.gradient(total_loss, model.trainable_weights)
         # Run one step of gradient descent
@@ -196,6 +200,10 @@ class TrainerParticleNet(Trainer):
         predictions = model(x_batch, training=False)
         reco_loss = tf.math.reduce_mean(loss_fn(feats_in, predictions))
         kl_loss = tf.math.reduce_mean(model.losses)
+        if 'vae'.lower() in self.ae_type :
+            kl_loss = tf.math.reduce_mean(model.losses) # get kl loss registered in sampling layer
+        else :
+            kl_loss = tf.zeros( reco_loss.shape, dtype=tf.dtypes.float32)
         return reco_loss, kl_loss
 
     def train(self, vae, loss_fn, train_ds, valid_ds, epochs, model_dir):
@@ -215,10 +223,11 @@ class TrainerParticleNet(Trainer):
             print("\n### [{}.{} {}:{}:{}] Start of epoch {}".format(now.day, now.month, now.hour, now.minute, now.second, epoch))
             start_time = time.time()
             training_loss_reco, training_loss_kl = self.training_epoch(model, loss_fn, train_ds)
+            training_loss_tot = (1-self.beta)*training_loss_reco + self.beta * training_loss_kl
             validation_loss_reco, validation_loss_kl = self.validation_epoch(model, loss_fn, valid_ds)
-            validation_loss_tot = validation_loss_reco + self.beta * validation_loss_kl
-            losses_tot_train.append(training_loss_reco + self.beta * training_loss_kl)
-            losses_tot_valid.append(validation_loss_reco + self.beta * validation_loss_kl) 
+            validation_loss_tot = (1-self.beta)*validation_loss_reco + self.beta * validation_loss_kl
+            losses_tot_train.append(training_loss_tot)
+            losses_tot_valid.append(validation_loss_tot) 
             losses_reco_train.append(training_loss_reco )
             losses_reco_valid.append(validation_loss_reco )
             losses_kl_train.append( training_loss_kl)
@@ -272,21 +281,39 @@ def predict(model, loss_fn, test_ds):
 
 
 
-def predict_particle_net(model, loss_fn, test_ds):
+def predict_particle_net(model_vae, loss_fn, test_ds,return_latent=False):
 
     predictions = []
     validation_loss_reco = []
     validation_loss_kl = []
+    z_latent = []
+    z_mean = []
+    z_std = []
 
+    model = model_vae.model
+    encoder = model_vae.encoder
     for step, x_batch_test in enumerate(test_ds):
         (coord_in, feats_in)  = x_batch_test
         # print('predicting batch {}'.format(step))
         predictions_batch = model(x_batch_test, training=False)
+        encoder_batch = encoder(x_batch_test, training=False)
         reco_loss = loss_fn(feats_in, predictions_batch)
-        kl_loss = sum(model.losses)
+        if len(encoder_batch)==3:
+            z_latent.append(encoder_batch[0].numpy())
+            z_mean.append(encoder_batch[1].numpy())
+            z_std.append(encoder_batch[2].numpy())
+            kl_loss = sum(model.losses)
+        else :
+            z_latent.append(encoder_batch.numpy())
+            z_mean.append(np.zeros(encoder_batch[0].shape.as_list()))
+            z_std.append(np.zeros(encoder_batch[0].shape.as_list()))
+            kl_loss = np.zeros(reco_loss.shape.as_list())            
         validation_loss_reco.append(reco_loss)
         validation_loss_kl.append(kl_loss)
-        predictions.append(predictions_batch)
-    # import ipdb; ipdb.set_trace()    
-    return (np.concatenate(predictions, axis=0), np.concatenate(validation_loss_reco, axis=0), np.concatenate(validation_loss_kl, axis=0))
+        predictions.append(predictions_batch.numpy())
 
+    # import ipdb; ipdb.set_trace()    
+    if return_latent:
+        return (np.concatenate(predictions, axis=0), np.concatenate(validation_loss_reco, axis=0), np.concatenate(validation_loss_kl, axis=0), (np.concatenate(z_latent, axis=0),np.concatenate(z_mean, axis=0),np.concatenate(z_std, axis=0)))
+    else:
+        return (np.concatenate(predictions, axis=0), np.concatenate(validation_loss_reco, axis=0), np.concatenate(validation_loss_kl, axis=0))
