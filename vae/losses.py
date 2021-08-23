@@ -16,7 +16,7 @@ def total_loss(reco_loss, kl_loss, beta):
 @tf.function
 def kl_loss(z_mean, z_log_var):
     kl = 1. + z_log_var - tf.square(z_mean) - tf.exp(z_log_var)
-    return -0.5 * tf.reduce_mean(kl, axis=-1) # multiplying mse by N -> using sum (instead of mean) in kl loss (todo: try with averages)
+    return -0.5 * tf.reduce_sum(kl, axis=-1) 
 
 # wrapper for mse loss to pass as reco loss
 def mse_loss(inputs, outputs):

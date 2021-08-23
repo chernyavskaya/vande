@@ -32,7 +32,7 @@ matplotlib.use('Agg')
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg generator')
-params = RunParameters(run_n=16, 
+params = RunParameters(run_n=29, 
                        epochs=40, 
                        train_total_n=int(2e6 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
@@ -49,10 +49,9 @@ paths = safa.SamplePathDirFactory(sdi.path_dict)
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Settings', 'name  input_shape  beta activation initializer conv_params conv_params_encoder conv_params_decoder with_bn conv_pooling conv_linking latent_dim ae_type kl_warmup_time kernel_ini_n')
+Parameters = namedtuple('Settings', 'name  input_shape  activation initializer conv_params conv_params_encoder conv_params_decoder with_bn edge_func conv_pooling conv_linking latent_dim ae_type beta kl_warmup_time kernel_ini_n')
 settings = Parameters(name = 'PN',
                      input_shape=[(100,2),(100,3)],
-                     beta=0.01, 
                      activation=klayers.LeakyReLU(alpha=0.1),
                      initializer='glorot_normal', 
                       # conv_params: list of tuple in the format (K, (C1, C2, C3))
@@ -66,11 +65,13 @@ settings = Parameters(name = 'PN',
                      conv_params_encoder = [20],
                      conv_params_decoder = [50,30,10,5],  #[32,16,8]
                      with_bn = True,
+                     edge_func=5, #strategy for edge function from EdgeConv paper, 1-5
                      conv_pooling = 'average',
-                     conv_linking = 'sum' ,#concat or sum #currently shorcut is removed
-                     latent_dim = 3,
+                     conv_linking = 'concat' ,#features shortcut : concat or sum or none (when shorcut is removed)
+                     latent_dim = 12,
                      ae_type = 'ae',  #ae or vae 
-                     kl_warmup_time = 10, #currently noy used
+                     beta=0., 
+                     kl_warmup_time = 0, 
                      kernel_ini_n = 0) #should be/will be removed at next iteration
 
 
@@ -128,7 +129,7 @@ loss_fn = losses.threeD_loss
 vae = vae_pn.VAE_ParticleNet(name=settings.name,conv_params=settings.conv_params, conv_params_encoder=settings.conv_params_encoder,
                                             conv_params_decoder=settings.conv_params_decoder, with_bn=settings.conv_params_decoder, 
                                             conv_pooling=settings.conv_pooling,conv_linking=settings.conv_linking,
-                                            initializer=settings.initializer,
+                                            initializer=settings.initializer,edge_func=settings.edge_func,
                                             input_shape=settings.input_shape,latent_dim=settings.latent_dim,ae_type=settings.ae_type,
                                             kl_warmup_time=settings.kl_warmup_time,activation=settings.activation,beta=settings.beta )
 vae.build()
@@ -139,7 +140,7 @@ vae.build()
 # *******************************************************
 
 
-trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg,ae_type=settings.ae_type)
+trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg,ae_type=settings.ae_type,kl_warmup_time=settings.kl_warmup_time)
 losses_train, losses_valid = trainer.train(vae=vae, loss_fn=loss_fn,
                                           train_ds=train_ds,valid_ds=valid_ds,
                                           epochs=params.epochs, model_dir=experiment.model_dir)

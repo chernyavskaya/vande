@@ -156,7 +156,7 @@ class Trainer():
 
 class TrainerParticleNet(Trainer):
 
-    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0, ae_type='vae'):
+    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0, ae_type='vae',kl_warmup_time=0):
         super(TrainerParticleNet, self).__init__(self)
         self.optimizer = optimizer
         self.beta = beta
@@ -168,6 +168,9 @@ class TrainerParticleNet(Trainer):
         self.best_loss_so_far = None        
         self.saved_loss_types = ['tot','reco','kl']
         self.ae_type = ae_type
+        self.kl_warmup_time = kl_warmup_time
+        self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
+
 
 
     @tf.function
@@ -185,7 +188,7 @@ class TrainerParticleNet(Trainer):
             else :
                 kl_loss = tf.zeros( reco_loss.shape, dtype=tf.dtypes.float32)
             reg_loss = losses.l2_regularize(model.trainable_weights)
-            total_loss = (1-self.beta)*reco_loss + self.beta * kl_loss + self.lambda_reg * reg_loss
+            total_loss = (1.-self.beta*self.beta_kl_warmup)*reco_loss + self.beta*self.beta_kl_warmup * kl_loss + self.lambda_reg * reg_loss
         # the gradients of the trainable variables with respect to the loss.
         grads = tape.gradient(total_loss, model.trainable_weights)
         # Run one step of gradient descent
@@ -222,10 +225,19 @@ class TrainerParticleNet(Trainer):
             now = datetime.datetime.today()
             print("\n### [{}.{} {}:{}:{}] Start of epoch {}".format(now.day, now.month, now.hour, now.minute, now.second, epoch))
             start_time = time.time()
+
+
+            if self.kl_warmup_time!=0 : 
+                #By design the first epoch will have a small fraction of latent loss
+                kl_value = ((epoch+1)/self.kl_warmup_time) * (epoch < self.kl_warmup_time) + 1.0 * (epoch >= self.kl_warmup_time)
+            else : 
+                kl_value=1
+            tf.keras.backend.set_value(self.beta_kl_warmup, kl_value)
+
             training_loss_reco, training_loss_kl = self.training_epoch(model, loss_fn, train_ds)
-            training_loss_tot = (1-self.beta)*training_loss_reco + self.beta * training_loss_kl
+            training_loss_tot = (1-self.beta*self.beta_kl_warmup)*training_loss_reco + self.beta*self.beta_kl_warmup * training_loss_kl
             validation_loss_reco, validation_loss_kl = self.validation_epoch(model, loss_fn, valid_ds)
-            validation_loss_tot = (1-self.beta)*validation_loss_reco + self.beta * validation_loss_kl
+            validation_loss_tot = (1-self.beta*self.beta_kl_warmup)*validation_loss_reco + self.beta*self.beta_kl_warmup * validation_loss_kl
             losses_tot_train.append(training_loss_tot)
             losses_tot_valid.append(validation_loss_tot) 
             losses_reco_train.append(training_loss_reco )

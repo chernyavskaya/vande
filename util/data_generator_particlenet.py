@@ -45,17 +45,18 @@ def mask_training_cuts(constituents, features):
         constituents[:,jet_idx,:,idx_feat_pt] = log_transform(constituents[:,jet_idx,:,idx_feat_pt]) 
     return mask_j1, mask_j2
 
-def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarray
+def constituents_to_input_samples(constituents, mask_j1, mask_j2,shuffle=True): # -> np.ndarray
         const_j1 = constituents[:,0,:,:][mask_j1]
         const_j2 = constituents[:,1,:,:][mask_j2]
         samples = np.vstack([const_j1, const_j2])
-       # np.random.shuffle(samples) #this will only shuffle jets
-        samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though, use tensorshuffle instead
+        if shuffle:
+            np.random.shuffle(samples) #this will only shuffle jets
+            samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though, use tensorshuffle instead
         return samples  
 
-def events_to_input_samples(constituents, features):
+def events_to_input_samples(constituents, features,shuffle=True):
     mask_j1, mask_j2 = mask_training_cuts(constituents, features)
-    return constituents_to_input_samples(constituents, mask_j1, mask_j2)
+    return constituents_to_input_samples(constituents, mask_j1, mask_j2,shuffle)
 
 @njit(parallel=True)
 def normalize_features(particles):
@@ -68,7 +69,7 @@ def normalize_features(particles):
     return particles
 
 
-def get_data_from_file(path='',file_num=0,end=10000):
+def get_data_from_file(path='',file_num=0,end=10000,shuffle=True):
     flist = []
     flist  += glob.glob(path + '/' + '*.h5')
     flist.sort()
@@ -77,10 +78,10 @@ def get_data_from_file(path='',file_num=0,end=10000):
     const_train = data_train_read['jetConstituentsList'][0:end,]
     features_train = data_train_read['eventFeatures'][0:end,]
     print('>>> Normalizing features')
-    data_train = events_to_input_samples(const_train, features_train)
+    data_train = events_to_input_samples(const_train, features_train,shuffle=shuffle)
     data_train = normalize_features(data_train)
     print('Training data size {}'.format(data_train.shape[0]))
-    return data_train
+    return np.array(data_train,dtype="float32")
 
 
 class DataGenerator():
@@ -154,9 +155,9 @@ class DataGeneratorDirect():
 
         # loop through whole dataset, reading sample_part_n events at a time
         for constituents, features in generator:
-            samples = events_to_input_samples(constituents, features)
+            samples = events_to_input_samples(constituents, features,shuffle=False)
             samples = normalize_features(samples)
-            #samples = tf_shuffle_axis(tf.convert_to_tensor(samples, dtype=tf.float32),axis=1) 
+            samples = tf_shuffle_axis(tf.convert_to_tensor(samples, dtype=tf.float32),axis=1) 
             
 
             num_to_process = self.sample_max_n if self.sample_max_n is not None else samples.shape[0]

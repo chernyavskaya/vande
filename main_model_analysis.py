@@ -2,7 +2,7 @@ import sys,os, glob
 sys.path.append(os.path.abspath(os.path.join('..')))
 sys.path.append(os.path.abspath(os.path.join('../sarewt_orig/')))
 sys.path.append(os.path.abspath(os.path.join('../../')))
-import setGPU
+#import setGPU
 import numpy as np
 from collections import namedtuple
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -34,73 +34,95 @@ from sklearn.manifold import TSNE
 # ********************************************************
 #       runtime params
 # ********************************************************
-RunParameters = namedtuple('Parameters', 'run_n test_total_n batch_n')
-params = RunParameters(run_n=13, test_total_n=int(1e5), batch_n=256)  #number of test events is times 2, because two jets  
+RunParameters = namedtuple('Parameters', 'run_n  ae_type test_total_n batch_n')
+params = RunParameters(run_n=26, ae_type='ae', test_total_n=int(1e5), batch_n=256)  #number of test events is times 2, because two jets  
 
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 paths = safa.SamplePathDirFactory(sdi.path_dict)
+results_dir = os.path.join(experiment.model_dir, 'predicted/')
+pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
+
+
+# *******************************************************
+#                       load model
+# *******************************************************
+vae = VAE_ParticleNet.from_saved_model(path=experiment.model_dir)
+#vae = VAE_ParticleNet.from_saved_model(path=os.path.join(experiment.model_dir, 'best_so_far/'))
+beta= vae.beta
+print('Beta of the model is {}'.format(beta))
+loss_fn = losses.threeD_loss
 
 
 # ********************************************************
 #       prepare testing data
 # ********************************************************
 
-
-print('>>> Preparing testing BG dataset')
 particles_dict = {}
-particles_dict['input_ds'] = {} # dataset prepared for inference
-particles_dict['input_feats'] = {} # input features
-particles_dict['latent_space'] = {} 
-data_test = dage_pn.get_data_from_file(path=paths.sample_dir_path('qcdSideExt'),file_num=-1,end=params.test_total_n)
-particles_dict['input_ds']['BG'] = tf.data.Dataset.from_tensor_slices((data_test[:,:,0:2],data_test[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=1)
-particles_dict['input_feats']['BG']= data_test
-
-print('>>> Preparing testing signals dataset')
-#sig_types = 'GtoWW35na,GtoWW15na,GtoWW35br,GtoWW15br'.split(',')
-sig_types = ['GtoWW35na']
-for sig in sig_types:
-    data_test_sig = dage_pn.get_data_from_file(path=paths.sample_dir_path(sig),file_num=-1,end=params.test_total_n)
-    sig_ds = tf.data.Dataset.from_tensor_slices((data_test_sig[:,:,0:2],data_test_sig[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=1)
-    particles_dict['input_ds'][sig]= sig_ds
-    particles_dict['input_feats'][sig]= data_test_sig 
-
-
-# *******************************************************
-#                       losses options
-# *******************************************************
-
-loss_fn = losses.threeD_loss
-
-# *******************************************************
-#                       load model
-# *******************************************************
-vae = VAE_ParticleNet.from_saved_model(path=experiment.model_dir)
-beta= vae.beta
-
-# *******************************************************
-#                       predicting 
-# *******************************************************
-print('Predicting')
-for key in 'reco_feats,loss_reco,loss_kl,loss_tot'.split(','):
+for key in 'input_ds,input_feats,reco_feats,loss_reco,loss_kl,loss_tot,latent_space'.split(','):
     particles_dict[key] = {}
-particles_dict['reco_feats']['BG'], particles_dict['loss_reco']['BG'], particles_dict['loss_kl']['BG'],particles_dict['latent_space']['BG'] = tra.predict_particle_net(vae, loss_fn, particles_dict['input_ds']['BG'],return_latent=True)
-#From Run 15 : it should be (1-beta)+beta 
-particles_dict['loss_tot']['BG'] = particles_dict['loss_reco']['BG']+beta*particles_dict['loss_kl']['BG']
+latent_vars=['z_latent']
+if 'vae'.lower() in params.ae_type:
+    latent_vars+=['z_mean','z_std']
+for var in latent_vars:
+    particles_dict[var] = {}
 
-for sig in sig_types:
-    particles_dict['reco_feats'][sig], particles_dict['loss_reco'][sig], particles_dict['loss_kl'][sig],particles_dict['latent_space'][sig] = tra.predict_particle_net(vae, loss_fn, particles_dict['input_ds'][sig],return_latent=True)
-#From Run 15 : it should be (1-beta)+beta 
-    particles_dict['loss_tot'][sig] = particles_dict['loss_reco'][sig]+beta*particles_dict['loss_kl'][sig]
+print('>>> Preparing testing BG signals dataset')
+sig_types = 'GtoWW35na,GtoWW15na,GtoWW35br,GtoWW15br'.split(',')
+#sig_types = 'GtoWW15na,GtoWW35br'.split(',')
+
+for sig in ['BG']+sig_types:
+    sample_name = 'qcdSideExt' if  'BG' in sig else sig
+    out_file_name = '{}{}_njets_{}.h5'.format(results_dir,sample_name,params.test_total_n)
+    if pathlib.Path(out_file_name).is_file():
+        print('Loading already predicted data')
+        with h5py.File(out_file_name, 'r') as inFile:
+            for key in particles_dict.keys():
+                if key=='latent_space' or key=='input_ds': continue
+                particles_dict[key][sig] = np.array(inFile[key][0:params.test_total_n,:,:])
+    else:
+        print('Predicting')
+        in_file_name_other_run = '{}{}_njets_{}.h5'.format(results_dir.replace('run_{}'.format(params.run_n),'run_13'),sample_name,100000) #take some other file that day to speed up the reading
+        print('other file : '.format(in_file_name_other_run))
+        if pathlib.Path(in_file_name_other_run).is_file():
+            with h5py.File(in_file_name_other_run, 'r')as inFile:
+                data_test_sig = np.array(inFile['input_feats'][0:params.test_total_n,:,:])
+        else:
+            data_test_sig = dage_pn.get_data_from_file(path=paths.sample_dir_path(sample_name),file_num=-1,end=params.test_total_n,shuffle=False)
+        sig_ds = tf.data.Dataset.from_tensor_slices((data_test_sig[:,:,0:2],data_test_sig[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+        particles_dict['input_ds'][sig]= sig_ds
+        particles_dict['input_feats'][sig]= data_test_sig 
+        particles_dict['reco_feats'][sig], particles_dict['loss_reco'][sig], particles_dict['loss_kl'][sig],particles_dict['latent_space'][sig] = tra.predict_particle_net(vae, loss_fn, particles_dict['input_ds'][sig],return_latent=True)
+        particles_dict['z_latent'][sig] = particles_dict['latent_space'][sig][0]
+        if 'vae'.lower() in params.ae_type:
+            particles_dict['z_mean'][sig] = particles_dict['latent_space'][sig][1]
+            particles_dict['z_std'][sig] = particles_dict['latent_space'][sig][2]
+        #From Run 15 : it should be (1-beta)+beta 
+        particles_dict['loss_tot'][sig] = (1-beta)*particles_dict['loss_reco'][sig]+beta*particles_dict['loss_kl'][sig]
+      # *******************************************************
+      #               write predicted data
+      # *******************************************************
+        print('writing results for {} to {}'.format(sample_name, results_dir))
+        with h5py.File(out_file_name, 'w') as outFile:
+            for key in particles_dict.keys():
+                if key=='latent_space' or key=='input_ds': continue
+                else : outFile.create_dataset(key, data=np.array(particles_dict[key][sig], dtype=np.float32), compression='gzip')
+
+
+
 
 
 # *******************************************************
 #                       plotting losses
 # *******************************************************
+losses = ['loss_reco'] 
+if 'vae'.lower() in params.ae_type:
+    losses+=['loss_tot','loss_kl']
+
 print('Plotting losses')
 fig_dir = os.path.join(experiment.model_dir, 'figs/')
 pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
 
-for loss in ['loss_tot','loss_kl','loss_reco']:
+for loss in losses:
      datas = []
      datas.append(particles_dict[loss]['BG'])
      for sig in sig_types:
@@ -111,7 +133,7 @@ for loss in ['loss_tot','loss_kl','loss_reco']:
 #                       plotting ROCs 
 # *******************************************************
 print('Plotting ROCs')
-for loss in ['loss_tot','loss_kl','loss_reco']:
+for loss in losses:
     neg_class_losses = [particles_dict[loss]['BG']]*len(sig_types)
     pos_class_losses = []
     for sig in sig_types:
@@ -147,18 +169,18 @@ plot.plot_features(reco_feats, 'Reco.' ,'Normalized Dist.' , 'run_n={}'.format(p
 # *******************************************************
 print('Plotting latent space')
 
-for i_num,var in enumerate(['z_latent','z_mean','z_std']):
+for i_num,var in enumerate(latent_vars):
     latent_space = []
-    latent_space.append(particles_dict['latent_space']['BG'][i_num])
-    latent_space.append(particles_dict['latent_space'][sig_types[0]][i_num]) #first type of signal only , for comparison
-    plot.plot_features(latent_space, var ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_latent_{}_{}'.format(fig_dir,var,'BG_SIG'), legend=('BG,{}'.format(sig_types[0])).split(','), ylogscale=True)
+    latent_space.append(particles_dict[var]['BG'])
+    latent_space.append(particles_dict[var][sig_types[0]]) #first type of signal only , for comparison
+    plot.plot_features(latent_space, var ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}_{}'.format(fig_dir,var,'BG_SIG'), legend=('BG,{}'.format(sig_types[0])).split(','), ylogscale=True)
 
 
-for i_num,var in enumerate(['z_latent','z_mean','z_std']):
+for i_num,var in enumerate(latent_vars):
     latent_space = []
     for sig in sig_types:
-        latent_space.append(particles_dict['latent_space'][sig][i_num])
-    plot.plot_features(latent_space, var ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_latent_{}_{}'.format(fig_dir,var,'SIG'), legend=sig_types, ylogscale=True)
+        latent_space.append(particles_dict[var][sig])
+    plot.plot_features(latent_space, var ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}_{}'.format(fig_dir,var,'SIG'), legend=sig_types, ylogscale=True)
 
 
 # *******************************************************
@@ -166,17 +188,18 @@ for i_num,var in enumerate(['z_latent','z_mean','z_std']):
 # *******************************************************
 print('PCA on latent space')
 
-PCA_n = 2
-for i_num,var in enumerate(['z_latent','z_mean','z_std']):
-    pca = PCA(n_components=PCA_n)
-    pca.fit(particles_dict['latent_space']['BG'][i_num])
-    print('{} : Explained variation per principal component in BG: {}'.format(var,pca.explained_variance_ratio_))
-    latent_pca_bg_sigs = []
-    for data_type in ['BG']+sig_types:
-       latent_pca = pca.transform(particles_dict['latent_space'][data_type][i_num])
-       latent_pca_bg_sigs.append(latent_pca)
-    if PCA_n==2: plot.plot_scatter_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'{} PCA #1'.format(var.replace('_',' ')) , 'run_n={}'.format(params.run_n), plotname='{}plot_PCA_{}_{}'.format(fig_dir,var.replace('_',' '),'BG_SIG'), legend=['BG']+sig_types)
-    if PCA_n==1: plot.plot_hist_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'{} PCA #1'.format(var.replace('_',' ')) , 'run_n={}'.format(params.run_n), plotname='{}plot_hist_PCA_{}_{}'.format(fig_dir,var.replace('_',' '),'BG_SIG'), legend=['BG']+sig_types)
+PCA_ns = [1,2]
+for PCA_n in PCA_ns:
+    for i_num,var in enumerate(latent_vars):
+        pca = PCA(n_components=PCA_n)
+        pca.fit(particles_dict[var]['BG'])
+        print('{} : Explained variation per principal component in BG: {}'.format(var,pca.explained_variance_ratio_))
+        latent_pca_bg_sigs = []
+        for data_type in ['BG']+sig_types:
+           latent_pca = pca.transform(particles_dict[var][data_type])
+           latent_pca_bg_sigs.append(latent_pca)
+        if PCA_n==2: plot.plot_scatter_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'{} PCA #1'.format(var.replace('_',' ')) , 'run_n={}'.format(params.run_n), plotname='{}plot_PCA{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=['BG']+sig_types)
+        if PCA_n==1: plot.plot_hist_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_hist_PCA{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=['BG']+sig_types)
 
 
 

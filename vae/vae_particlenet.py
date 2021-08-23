@@ -20,24 +20,24 @@ class VAE_ParticleNet(vbase.VAE):
      # super(VAE_ParticleNet, self).__init__(**kwargs)
    def __init__(self, conv_params=[(15, (20,20,20)),(15, (20,20,20))], conv_params_encoder=[], conv_params_decoder=[10], with_bn=1, 
                conv_pooling='average', conv_linking='sum', input_shape=[(100,2),(100,3)], latent_dim=10,
-               ae_type='ae', kl_warmup_time=0, activation='relu', beta=0.1,kernel_ini_n=1,initializer = 'glorot_normal' ,name='PN'): 
+               ae_type='ae', kl_warmup_time=0, activation='relu', beta=0.1,kernel_ini_n=1,initializer = 'glorot_normal',edge_func=4,name='PN'): 
       super(VAE_ParticleNet, self).__init__(name=name,beta=beta,conv_params=conv_params, conv_params_encoder=conv_params_encoder,
                                             conv_params_decoder=conv_params_decoder, with_bn=with_bn, 
                                             conv_pooling=conv_pooling,conv_linking=conv_linking,
                                             input_shape=input_shape,latent_dim=latent_dim,ae_type=ae_type,
                                             kl_warmup_time=kl_warmup_time,activation=activation,kernel_ini_n=1,
-                                            initializer=initializer )
+                                            initializer=initializer,edge_func=edge_func )
      
       self.initializer = self.params.initializer
       self.with_bn = self.params.with_bn if self.params.with_bn!=None else True 
       self.latent_dim = self.params.latent_dim
       self.activation = self.params.activation
       self.kl_warmup_time = self.params.kl_warmup_time
-      self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
       self.input_shapes_points = self.params.input_shape[0]
       self.input_shapes_feats = self.params.input_shape[1]
       self.num_points = self.input_shapes_points[0] #num consistuents
       self.num_features = self.input_shapes_feats[1] #num features 
+      self.edge_func = self.params.edge_func
       self.name = self.params.name
 
 
@@ -157,8 +157,11 @@ class VAE_ParticleNet(vbase.VAE):
          fts = features
          knn_fts = funcs.knn(self.num_points, K, indices, fts)  # (N, P, K, C)
          knn_fts_center = tf.tile(tf.expand_dims(fts, axis=2), (1, 1, K, 1))  # (N, P, K, C)
-         #knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C) #TO DO: Investigate why this assymetric function actually performs worse 
-         knn_fts =  tf.subtract(knn_fts, knn_fts_center) #TO DO : This edge function is local info only
+         
+         if self.edge_func==4:
+              knn_fts =  tf.subtract(knn_fts, knn_fts_center) #TO DO : This edge function is local info only
+         if self.edge_func==5:
+              knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C) #TO DO: Investigate why this assymetric function actually performs worse 
 
          x = knn_fts
          for idx, channel in enumerate(channels):
@@ -181,15 +184,15 @@ class VAE_ParticleNet(vbase.VAE):
                 sc = keras.layers.BatchNormalization(name='%s_sc_bn' % name)(sc)
          sc = tf.squeeze(sc, axis=2)
 
-         x = fts #TODO : investigate why inclusing sum/concatenation degrades performance. In fact sensitivity to different signals is removed
-         #Right now there is no use of shortcut         
 
-          
-        # x = sc + fts #sum by default, original PN. It probably should be added after latent space
-        # if self.params.conv_linking == 'concat': #concat or sum
-        #    x = tf.concat([sc,fts],axis=2) 
-        # if self.activation:
-        #    x =  keras.layers.Activation(self.activation, name='%s_sc_act' % name)(x)  # (N, P, C') #TO DO : try with concatenation instead of sum
+         if self.params.conv_linking == 'none': #concat or sum
+            x = fts #TODO : investigate why inclusing sum/concatenation degrades performance. In fact sensitivity to different signals isremoved
+         elif self.params.conv_linking == 'sum': #concat or sum
+            x = sc + fts #sum by default, original PN
+         if self.params.conv_linking == 'concat': #concat or sum
+            x = tf.concat([sc,fts],axis=2) 
+         if self.activation:
+            x =  keras.layers.Activation(self.activation, name='%s_sc_act' % name)(x)  # (N, P, C') #TO DO : try with concatenation instead of sum
          return x
 
 
