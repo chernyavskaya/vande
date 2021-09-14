@@ -14,12 +14,18 @@ def plot_hist( data, xlabel, ylabel, title, plotname='', legend=[], ylogscale=Tr
 def plot_features( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     num_feats = datas[0].shape[-1]
     for i in range(num_feats):
-        plot_hist_many( [data[:,i] for data in datas], xlabel+' {}'.format(i), ylabel, title, plotname=plotname+'_{}'.format(i), legend=legend, ylogscale=ylogscale )
+        if type(xlabel)==str : 
+            xlabel_plot = xlabel+' {}'.format(i)
+        else : 
+            xlabel_plot = xlabel[i]
+        plot_hist_many( [data[:,i] for data in datas], xlabel_plot, ylabel, title, plotname=plotname+'_{}'.format(i), legend=legend, ylogscale=ylogscale )
 
 def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     fig = plt.figure( )
-    max_score = np.max([1.1*np.quantile(x,0.95) for x in datas])
-    min_score = np.min([0.9*np.quantile(x,0.05) for x in datas])
+    #max_score = np.max([1.1*np.quantile(x,0.99) for x in datas])
+    #min_score = np.min([0.9*np.quantile(x,0.01) for x in datas])
+    max_score = np.max([np.max(x) for x in datas])
+    min_score = np.min([np.min(x) for x in datas])
     kwargs={'linewidth':2.3, 'fill':False, 'density':True,'histtype':'step'}
     bins = 70
     for i,data in enumerate(datas):
