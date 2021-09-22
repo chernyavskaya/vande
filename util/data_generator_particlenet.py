@@ -10,6 +10,8 @@ import numba
 from numba import jit,njit
 import glob
 import math
+import pofah.util.utility_fun as utfu
+
 
 def tf_shuffle_axis(value, axis=0, seed=None, name=None):
     perm = list(range(tf.rank(value)))
@@ -20,8 +22,8 @@ def tf_shuffle_axis(value, axis=0, seed=None, name=None):
 
 #@njit(parallel=True)
 def log_transform(x):
-    #return np.where(x==0.,-10.,np.log(x)) #depending on the va
-    return np.where(x==0,-10.,np.log(x)) #depending on the va
+    return np.where(x==0,-2.,np.log(x)) #depending on the va
+    #return np.where(x==0,0.,np.log10(x)) #depending on the va
 
 #@njit(parallel=True)
 def transform_min_max(x):
@@ -29,7 +31,7 @@ def transform_min_max(x):
 
 #@njit(parallel=True)
 def transform_mean_std(x):
-    return (x-np.nanmean(x))/(3*np.nanstd(x))
+    return (x-x.mean(dtype=float))/(3.*x.std(dtype=float))
 
 
 #@njit(parallel=True)
@@ -63,7 +65,6 @@ def events_to_input_samples(constituents, features,shuffle=True):
     return constituents_to_input_samples(constituents, mask_j1, mask_j2,shuffle)
 
 
-
 def prepare_samples_case(constituents, features): #this is for raw case files (not from Benedikt)
     constituents = conv.xyze_to_eppt(constituents)
 
@@ -71,6 +72,10 @@ def prepare_samples_case(constituents, features): #this is for raw case files (n
     idx_j1Pt, idx_j2Pt = 2,6
     idx_j1Eta, idx_j2Eta = 3,7
     idx_j1Phi, idx_j2Phi = 4,8
+    jetPt_cut = 400. #for now it is 400 for some reason
+    mask_j1 = features[:, idx_j1Pt] > jetPt_cut
+    mask_j2 = features[:, idx_j2Pt] > jetPt_cut
+
     for jet_idx in [0,1]:
         idx_jEta=idx_j1Eta
         idx_jPhi=idx_j1Phi
@@ -87,10 +92,22 @@ def prepare_samples_case(constituents, features): #this is for raw case files (n
     return constituents
 
 
-def preprocess_samples_all_case(constituents, features,shuffle=True):
+def preprocess_samples_all_case(constituents, features):
     #idx_feat_eta, idx_feat_phi, idx_feat_pt=0,1,2 #for Benedikt this is for some reason the order is pt,eta, phi, while for case : eta, phi, pt
     idx_feat_pt, idx_feat_eta, idx_feat_phi=0,1,2 #for Benedikt this is for some reason the order is pt,eta, phi, while for case : eta, phi, pt
+    idx_j1Pt, idx_j2Pt = 2,6
+    idx_j1Eta, idx_j2Eta = 3,7
+    idx_j1Phi, idx_j2Phi = 4,8
+
     for jet_idx in [0,1]:
+        idx_jPt=idx_j1Pt
+        if jet_idx == 1: 
+            idx_jPt = idx_j2Pt
+
+        ###BRING BACK ENERGY SCALE FOR NOW
+        constituents[:,jet_idx,:,idx_feat_pt] = constituents[:,jet_idx,:,idx_feat_pt]*features[:, idx_jPt,None]  #  
+
+
         constituents[:,jet_idx,:,idx_feat_phi] = ((constituents[:,jet_idx,:,idx_feat_phi]+math.pi)%(2*math.pi))-math.pi #correct the phi, as it was not done
         '''remove nans'''
         constituents[:,jet_idx,:,idx_feat_pt] = np.nan_to_num(constituents[:,jet_idx,:,idx_feat_pt], posinf=0.) 
@@ -99,18 +116,67 @@ def preprocess_samples_all_case(constituents, features,shuffle=True):
         print('Fraction of 0 in jet {},{}'.format(jet_idx,np.mean(np.sum(constituents[:,jet_idx,:,idx_feat_pt]==0.,axis=1)/constituents[:,jet_idx,:,idx_feat_pt].shape[1])))
 
         #replace 0 to be discontinued
-        mask_zeros = (constituents[:,jet_idx,:,idx_feat_pt]==0)
+       # mask_zeros = (constituents[:,jet_idx,:,idx_feat_pt]==0)
+        mask_zeros = (constituents[:,jet_idx,:,idx_feat_pt]<=.5)
         constituents[:,jet_idx,:,idx_feat_pt] = log_transform(constituents[:,jet_idx,:,idx_feat_pt])
-        constituents[:,jet_idx,:,idx_feat_pt][~mask_zeros] = transform_mean_std(constituents[:,jet_idx,:,idx_feat_pt][~mask_zeros])
-        constituents[:,jet_idx,:,idx_feat_eta][~mask_zeros] = transform_mean_std(constituents[:,jet_idx,:,idx_feat_eta][~mask_zeros])
-        constituents[:,jet_idx,:,idx_feat_phi][~mask_zeros] = transform_mean_std(constituents[:,jet_idx,:,idx_feat_phi][~mask_zeros])
+       # constituents[:,jet_idx,:,idx_feat_pt][~mask_zeros] = transform_mean_std(constituents[:,jet_idx,:,idx_feat_pt][~mask_zeros])
+       # constituents[:,jet_idx,:,idx_feat_eta][~mask_zeros] = transform_mean_std(constituents[:,jet_idx,:,idx_feat_eta][~mask_zeros])
+       # constituents[:,jet_idx,:,idx_feat_phi][~mask_zeros] = transform_mean_std(constituents[:,jet_idx,:,idx_feat_phi][~mask_zeros])
 
-        constituents[:,jet_idx,:,idx_feat_pt][mask_zeros] = -2.
-        constituents[:,jet_idx,:,idx_feat_eta][mask_zeros] = -2.
-        constituents[:,jet_idx,:,idx_feat_phi][mask_zeros] = -2.
+       # constituents[:,jet_idx,:,idx_feat_pt][mask_zeros] = 0.
+       # constituents[:,jet_idx,:,idx_feat_eta][mask_zeros] = 0.
+       # constituents[:,jet_idx,:,idx_feat_phi][mask_zeros] = 0.
 
-    const_j1 = constituents[:,0,:,:]
-    const_j2 = constituents[:,1,:,:]
+    return constituents
+
+def clean_nan_inf(constituents, features):
+
+    for jet_idx in [0,1]:
+        for feat_idx in range(constituents.shape[-1]):
+            constituents[:,jet_idx,:,feat_idx] = np.nan_to_num(constituents[:,jet_idx,:,feat_idx], posinf=0.,neginf=0.,nan=0.)  
+    return constituents
+
+
+
+
+def get_mean_and_stdev(constituents): 
+   # mask_zeros = np.ma.masked_equal(constituents[:,:,-1],0)#&(constituents[:,:,-2]==0)&(constituents[:,:,-3]==0) #very bad, fix this hardcoding
+    #print(mask_zeros.shape)
+    mask_zeros = constituents[:,:,-1]==0#&(constituents[:,:,-2]==0)&(constituents[:,:,-3]==0) #very bad, fix this hardcoding
+    print(mask_zeros.shape)
+    mask_zeros = np.stack([mask_zeros,mask_zeros,mask_zeros],axis=2)
+    print(mask_zeros)
+    print(np.where(mask_zeros,0,constituents))
+    print((np.ma.array(constituents,mask=mask_zeros)).std(axis=(0,1)))
+    return utfu.get_mean_and_stdev(np.where(mask_zeros,0,constituents))
+
+
+def getting_mask(constituents):
+    mask_zeros = constituents[:,:,-1]==0#&(constituents[:,:,-2]==0)&(constituents[:,:,-3]==0) #very bad, fix this hardcoding
+    mask_zeros = np.stack([mask_zeros,mask_zeros,mask_zeros],axis=2)
+    print((np.ma.array(constituents,mask=mask_zeros)).std(axis=(0,1))) # this is how to get masked
+
+
+def cut_jet(features,region='side'):
+    idx_j1Pt, idx_j2Pt = 2,6
+    idx_j1Eta, idx_j2Eta = 3,7
+    idx_j1Phi, idx_j2Phi = 4,8
+    idx_dEta = 1
+    if region=='side' : mask_dEta = features[:, idx_dEta] > 1.4
+    if region=='sig' : mask_dEta = features[:, idx_dEta] <= 1.4
+    jetPt_cut = 700. #for now it is 400 for some reason
+    mask_j1 = (features[:, idx_j1Pt] > jetPt_cut)*mask_dEta
+    mask_j2 = (features[:, idx_j2Pt] > jetPt_cut)*mask_dEta
+    return mask_j1,mask_j2
+
+
+def prepare_training_case(constituents,shuffle=True,mask_j1=None, mask_j2=None):
+    if mask_j1 is not None and mask_j2 is not None: 
+        const_j1 = constituents[:,0,:,:][mask_j1]
+        const_j2 = constituents[:,1,:,:][mask_j2]
+    else:
+        const_j1 = constituents[:,0,:,:]
+        const_j2 = constituents[:,1,:,:]  
     samples = np.vstack([const_j1, const_j2])
     if shuffle:
         np.random.shuffle(samples) #this will only shuffle jets
@@ -119,13 +185,24 @@ def preprocess_samples_all_case(constituents, features,shuffle=True):
 
 
 #@njit(parallel=True)
+def normalize_features_all(particles):
+    for idx in range(particles.shape[-1]):
+        particles[:,:,idx] = transform_mean_std(particles[:,:,idx]) 
+    return particles
+
 def normalize_features(particles):
     idx_eta, idx_phi, idx_pt = range(3)
     # min-max normalize pt
-    particles[:,:,idx_pt] = transform_mean_std(particles[:,:,idx_pt]) 
+    #particles[:,:,idx_pt] = transform_mean_std(particles[:,:,idx_pt])
+    particles[:,:,idx_pt] = transform_min_max(particles[:,:,idx_pt])  
     # standard normalize angles, then min - max to have all features in the same range, and make masking easier
     particles[:,:,idx_eta] = transform_mean_std(particles[:,:,idx_eta]) #transform_min_max()
     particles[:,:,idx_phi] = transform_mean_std(particles[:,:,idx_phi]) #transform_min_max()
+    return particles
+
+def const_normalizer(particles,mean,std):
+    for idx in range(particles.shape[-1]):
+        particles[:,:,idx] = (particles[:,:,idx]-mean[idx])/(std[idx]) 
     return particles
 
 
@@ -138,18 +215,25 @@ def get_data_from_file(path='',file_num=0,end=10000,shuffle=True):
     data_train_read = h5py.File(flist[file_num], 'r') 
     const_train = data_train_read['jetConstituentsList'][0:end,]
     features_train = data_train_read['eventFeatures'][0:end,]
-    print('>>> Normalizing features')
     data_train = events_to_input_samples(const_train, features_train,shuffle=shuffle)
     data_train = normalize_features(data_train)
     print('Training data size {}'.format(data_train.shape[0]))
     return np.array(data_train,dtype="float32")
 
 
-def get_data_from_dir_case(path='',sample_part_n=10000,shuffle=True):
-    const,const_names,feats,feats_names = dare.CaseDataReader(path).read_const_feats_from_dir(max_n=sample_part_n)
-    data_train = preprocess_samples_all_case(const, feats,shuffle=shuffle)
-    #data_train = normalize_features(data_train)
-    print('Training data size {}'.format(data_train.shape[0]))
+def prepare_prediction_data_from_dir_case(path='',sample_part_n=10000,shuffle=True,region='side',**cuts):
+    const,const_names,feats,feats_names = dare.CaseDataReader(path).read_const_feats_from_dir(max_n=sample_part_n,**cuts)
+    const = preprocess_samples_all_case(const, feats)
+    mask_j1, mask_j2 = cut_jet(feats,region)
+    #mask_j1,mask_j2 = None,None
+    data_train = prepare_training_case(const,shuffle=shuffle,mask_j1=mask_j1, mask_j2=mask_j2)
+    data_train = np.flip(data_train, 2) #flip the order for Benedik samples
+
+    #const = clean_nan_inf(const,feats)
+    #mask_j1, mask_j2 = cut_jet(feats,region)
+    #data_train = prepare_training_case(const,shuffle=shuffle,mask_j1=mask_j1, mask_j2=mask_j2)
+    ##data_train = normalize_features_all(data_train)
+    #print('Training data size {}'.format(data_train.shape[0]))
     return np.array(data_train,dtype="float32")
 
 

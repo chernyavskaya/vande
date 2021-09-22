@@ -2,7 +2,7 @@ import sys,os, glob
 sys.path.append(os.path.abspath(os.path.join('..')))
 sys.path.append(os.path.abspath(os.path.join('../sarewt_orig/')))
 sys.path.append(os.path.abspath(os.path.join('../../')))
-#import setGPU
+import setGPU
 import numpy as np
 from collections import namedtuple
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -15,6 +15,8 @@ import vae.vae_particlenet as vae_pn
 import vae.losses as losses
 from vae.vae_particlenet import VAE_ParticleNet
 import pofah.path_constants.sample_dict_file_parts_input_vae as sdi
+import pofah.path_constants.sample_dict_file_parts_input_vae_case as sdi_case
+
 import pofah.util.experiment as expe
 import pofah.util.sample_factory as safa
 import util.data_generator_particlenet as dage_pn
@@ -34,13 +36,25 @@ from sklearn.manifold import TSNE
 # ********************************************************
 #       runtime params
 # ********************************************************
-RunParameters = namedtuple('Parameters', 'run_n  ae_type test_total_n batch_n')
-params = RunParameters(run_n=31, ae_type='ae', test_total_n=int(1e5), batch_n=256)  #number of test events is times 2, because two jets  
+RunParameters = namedtuple('Parameters', 'case run_n  ae_type test_total_n batch_n')
+params = RunParameters(case=0, run_n=38, ae_type='ae', test_total_n=int(1e4), batch_n=int(1e2))  #number of test events is times 2, because two jets    #1e5
+
 
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
-paths = safa.SamplePathDirFactory(sdi.path_dict)
+if params.case :
+    paths = safa.SamplePathDirFactory(sdi_case.path_dict)
+else :
+    paths = safa.SamplePathDirFactory(sdi.path_dict)
+
+
+#with open(os.path.join(experiment.model_dir,'mean_std.json'), 'r') as f_json:
+#    mean_stdev_dict = eval(json.load(f_json))
+
+
 results_dir = os.path.join(experiment.model_dir, 'predicted/')
 pathlib.Path(results_dir).mkdir(parents=True, exist_ok=True)
+#cuts_sig = cuts.signalregion_cuts  #does not work for some reason
+
 
 
 # *******************************************************
@@ -67,28 +81,40 @@ for var in latent_vars:
     particles_dict[var] = {}
 
 print('>>> Preparing testing BG signals dataset')
-sig_types = 'GtoWW35na,GtoWW15na,GtoWW35br,GtoWW15br'.split(',')
-#sig_types = 'GtoWW15na,GtoWW35br'.split(',')
+#sig_types = 'GtoWW35na,GtoWW15na,GtoWW35br,GtoWW15br'.split(',')
+sig_types = 'GtoWW35br,GtoWW15na'.split(',')
+#sig_types='GravToZZ_M3500,GravToZZ_M4500,BstarToTW_M3600_LH,WprimeToWZ_M3500,WprimeToWZ_M4500,WkkToWRadion_M3500-R0-2,WkkToWRadion_M3500-R0-08'.split(',')
+#sig_types='GrZZ_M3p5,GrZZ_M4p5,B*TW_M3p6,WpToWZ_M3p5,WpToWZ_M4p5,Wkk_M3p5_R2,Wkk_M3p5_R8'.split(',')
+bg_type='qcdSig'
 
-for sig in ['BG']+sig_types:
-    sample_name = 'qcdSideExt' if  'BG' in sig else sig
+
+for sig in [bg_type]+sig_types:
+    #sample_name = 'qcdSig' if  'BG' in sig else sig
+    sample_name = sig
     out_file_name = '{}{}_njets_{}.h5'.format(results_dir,sample_name,params.test_total_n)
     if pathlib.Path(out_file_name).is_file():
         print('Loading already predicted data')
         with h5py.File(out_file_name, 'r') as inFile:
             for key in particles_dict.keys():
                 if key=='latent_space' or key=='input_ds': continue
-                particles_dict[key][sig] = np.array(inFile[key][0:params.test_total_n,:,:])
+                particles_dict[key][sig] = np.array(inFile[key][0:params.test_total_n])
     else:
         print('Predicting')
-        in_file_name_other_run = '{}{}_njets_{}.h5'.format(results_dir.replace('run_{}'.format(params.run_n),'run_29'),sample_name,100000) #take some other file that day to speed up the reading
-        print('other file : '.format(in_file_name_other_run))
+        in_file_name_other_run = '{}{}_njets_{}.h5'.format(results_dir.replace('run_{}'.format(params.run_n),'run_29'),sample_name,params.test_total_n) #take some other file that day to speed up the reading
         if pathlib.Path(in_file_name_other_run).is_file():
+            print('Using the other file for data processing to save time : '.format(in_file_name_other_run))
             with h5py.File(in_file_name_other_run, 'r')as inFile:
                 data_test_sig = np.array(inFile['input_feats'][0:params.test_total_n,:,:])
         else:
-            data_test_sig = dage_pn.get_data_from_file(path=paths.sample_dir_path(sample_name),file_num=-1,end=params.test_total_n,shuffle=False)
-        sig_ds = tf.data.Dataset.from_tensor_slices((data_test_sig[:,:,0:2],data_test_sig[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+            if params.case:
+                print('predicting case')
+                data_test_sig = dage_pn.prepare_prediction_data_from_dir_case(path=paths.sample_dir_path(sample_name),sample_part_n=params.test_total_n,shuffle=False)
+            else :
+                print('predicting delphes')
+                data_test_sig = dage_pn.get_data_from_file(path=paths.sample_dir_path(sample_name),file_num=-1,end=params.test_total_n,shuffle=False)
+                #data_test_sig = dage_pn.const_normalizer(data_test_sig,mean=mean_stdev_dict['mean'],std=mean_stdev_dict['std'])
+
+        sig_ds = tf.data.Dataset.from_tensor_slices((data_test_sig[:,:,0:2],data_test_sig[:,:,:])).batch(params.batch_n, drop_remainder=False).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
         particles_dict['input_ds'][sig]= sig_ds
         particles_dict['input_feats'][sig]= data_test_sig 
         particles_dict['reco_feats'][sig], particles_dict['loss_reco'][sig], particles_dict['loss_kl'][sig],particles_dict['latent_space'][sig] = tra.predict_particle_net(vae, loss_fn, particles_dict['input_ds'][sig],return_latent=True)
@@ -124,17 +150,17 @@ pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
 
 for loss in losses:
      datas = []
-     datas.append(particles_dict[loss]['BG'])
+     datas.append(particles_dict[loss][bg_type])
      for sig in sig_types:
          datas.append(particles_dict[loss][sig])
-     plot.plot_hist_many(datas, loss.replace('_',' ') ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}'.format(fig_dir,loss), legend=['BG']+sig_types, ylogscale=True)
+     plot.plot_hist_many(datas, loss.replace('_',' ') ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}'.format(fig_dir,loss), legend=[bg_type]+sig_types, ylogscale=True)
 
 # *******************************************************
 #                       plotting ROCs 
 # *******************************************************
 print('Plotting ROCs')
 for loss in losses:
-    neg_class_losses = [particles_dict[loss]['BG']]*len(sig_types)
+    neg_class_losses = [particles_dict[loss][bg_type]]*len(sig_types)
     pos_class_losses = []
     for sig in sig_types:
        pos_class_losses.append(particles_dict[loss][sig])
@@ -149,14 +175,14 @@ for loss in losses:
 #plot features separately for BG, for SIG, and for BG and only one sig together, not to overload the relevant plots
 print('Plotting features')
 reco_feats = []
-num_feats = particles_dict['input_feats']['BG'].shape[-1]
-reco_feats.append(particles_dict['input_feats']['BG'].reshape(-1, num_feats))
-reco_feats.append(particles_dict['reco_feats']['BG'].reshape(-1, num_feats))
-plot.plot_features(reco_feats, 'Input vs Reco.' ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_features_{}'.format(fig_dir,'BG'), legend=('Input {},Reco. {}'.format('BG','BG')).split(','), ylogscale=True)
+num_feats = particles_dict['input_feats'][bg_type].shape[-1]
+reco_feats.append(particles_dict['input_feats'][bg_type].reshape(-1, num_feats))
+reco_feats.append(particles_dict['reco_feats'][bg_type].reshape(-1, num_feats))
+plot.plot_features(reco_feats, 'Input vs Reco.' ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_features_{}'.format(fig_dir,'BG'), legend=('Input {},Reco. {}'.format(bg_type,bg_type)).split(','), ylogscale=True)
 
 reco_feats.append(particles_dict['input_feats'][sig_types[0]].reshape(-1, num_feats))
 reco_feats.append(particles_dict['reco_feats'][sig_types[0]].reshape(-1, num_feats))
-plot.plot_features(reco_feats, 'input vs reco.' ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_features_{}'.format(fig_dir,'BG_SIG'), legend=('Input {},Reco. {}'.format('BG','BG')).split(',')+('Input {},Reco. {}'.format(sig_types[0],sig_types[0])).split(','), ylogscale=True)
+plot.plot_features(reco_feats, 'input vs reco.' ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_features_{}'.format(fig_dir,'BG_SIG'), legend=('Input {},Reco. {}'.format(bg_type,bg_type)).split(',')+('Input {},Reco. {}'.format(sig_types[0],sig_types[0])).split(','), ylogscale=True)
 
 
 reco_feats = [] #renew to plot reco signals only
@@ -171,9 +197,9 @@ print('Plotting latent space')
 
 for i_num,var in enumerate(latent_vars):
     latent_space = []
-    latent_space.append(particles_dict[var]['BG'])
+    latent_space.append(particles_dict[var][bg_type])
     latent_space.append(particles_dict[var][sig_types[0]]) #first type of signal only , for comparison
-    plot.plot_features(latent_space, var ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}_{}'.format(fig_dir,var,'BG_SIG'), legend=('BG,{}'.format(sig_types[0])).split(','), ylogscale=True)
+    plot.plot_features(latent_space, var ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_{}_{}'.format(fig_dir,var,'BG_SIG'), legend=('{},{}'.format(bg_type,sig_types[0])).split(','), ylogscale=True)
 
 
 for i_num,var in enumerate(latent_vars):
@@ -192,14 +218,40 @@ PCA_ns = [1,2]
 for PCA_n in PCA_ns:
     for i_num,var in enumerate(latent_vars):
         pca = PCA(n_components=PCA_n)
-        pca.fit(particles_dict[var]['BG'])
+        pca.fit(particles_dict[var][bg_type])
         print('{} : Explained variation per principal component in BG: {}'.format(var,pca.explained_variance_ratio_))
         latent_pca_bg_sigs = []
-        for data_type in ['BG']+sig_types:
+        for data_type in [bg_type]+sig_types:
            latent_pca = pca.transform(particles_dict[var][data_type])
            latent_pca_bg_sigs.append(latent_pca)
-        if PCA_n==2: plot.plot_scatter_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'{} PCA #1'.format(var.replace('_',' ')) , 'run_n={}'.format(params.run_n), plotname='{}plot_PCA{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=['BG']+sig_types)
-        if PCA_n==1: plot.plot_hist_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_hist_PCA{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=['BG']+sig_types)
+        if PCA_n==2: plot.plot_scatter_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'{} PCA #1'.format(var.replace('_',' ')) , 'run_n={}'.format(params.run_n), plotname='{}plot_PCA{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=[bg_type]+sig_types)
+        if PCA_n==1: 
+            plot.plot_hist_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_hist_PCA{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=[bg_type]+sig_types)
+            print('Plotting ROCs for mean PCA')
+            neg_class_losses = [latent_pca_bg_sigs[0]]*len(sig_types)
+            pos_class_losses = latent_pca_bg_sigs[1:-1]
+            ar.plot_roc( neg_class_losses, pos_class_losses, legend=sig_types, title='run_n={},from PCA1_{}'.format(params.run_n,var),plot_name='ROC_PCA1_{}'.format(var), fig_dir=fig_dir,log_x=False )
+
+
+
+
+PCA_ns = [1,2]
+for PCA_n in PCA_ns:
+    for i_num,var in enumerate(latent_vars):
+        latent_pca_bg_sigs = []
+        for data_type in [bg_type]+sig_types:
+           pca = PCA(n_components=PCA_n)
+           latent_pca = pca.fit_transform(particles_dict[var][data_type])
+           print('{} : Explained variation per principal component in BG: {}'.format(var,pca.explained_variance_ratio_))
+           latent_pca_bg_sigs.append(latent_pca)
+        if PCA_n==2: plot.plot_scatter_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'{} PCA #1'.format(var.replace('_',' ')) , 'run_n={}'.format(params.run_n), plotname='{}plot_PCA_each_{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=[bg_type]+sig_types)
+        if PCA_n==1: 
+            plot.plot_hist_many(latent_pca_bg_sigs, '{} PCA #0'.format(var.replace('_',' ')) ,'Normalized Dist.' , 'run_n={}'.format(params.run_n), plotname='{}plot_hist_PCA_each_{}_{}_{}'.format(fig_dir,PCA_n,var.replace('_',' '),'BG_SIG'), legend=[bg_type]+sig_types)
+            print('Plotting ROCs for mean PCA')
+            neg_class_losses = [latent_pca_bg_sigs[0]]*len(sig_types)
+            pos_class_losses = latent_pca_bg_sigs[1:-1]
+            ar.plot_roc( neg_class_losses, pos_class_losses, legend=sig_types, title='run_n={},from PCA1_{}'.format(params.run_n,var),plot_name='ROC_PCA1_each__{}'.format(var), fig_dir=fig_dir,log_x=False )
+
 
 
 

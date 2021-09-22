@@ -209,7 +209,7 @@ class VAE_ParticleNet(vbase.VAE):
 
            if self.with_bn:
                fts = tf.squeeze(klayers.BatchNormalization(name='%s_fts_bn' % self.name)(tf.expand_dims(features, axis=2)), axis=2)
-           fts = features 
+           #fts = features 
            for layer_idx, layer_param in enumerate(self.params.conv_params):
                K, channels = layer_param
                if mask is not None:

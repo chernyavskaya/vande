@@ -156,10 +156,11 @@ class Trainer():
 
 class TrainerParticleNet(Trainer):
 
-    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0, ae_type='vae',kl_warmup_time=0):
+    def __init__(self, optimizer, beta=0.1, patience=4, min_delta=0.01, max_lr_decay=4, lambda_reg=0.0, ae_type='vae',kl_warmup_time=0,kl_scale=1.):
         super(TrainerParticleNet, self).__init__(self)
         self.optimizer = optimizer
         self.beta = beta
+        self.kl_scale = kl_scale
         self.patience = patience
         self.min_delta = min_delta
         self.max_lr_decay = max_lr_decay
@@ -188,7 +189,7 @@ class TrainerParticleNet(Trainer):
             else :
                 kl_loss = tf.zeros( reco_loss.shape, dtype=tf.dtypes.float32)
             reg_loss = losses.l2_regularize(model.trainable_weights)
-            total_loss = (1.-self.beta*self.beta_kl_warmup)*reco_loss + self.beta*self.beta_kl_warmup * kl_loss + self.lambda_reg * reg_loss
+            total_loss = (1.-self.beta*self.beta_kl_warmup)*reco_loss + self.kl_scale*self.beta*self.beta_kl_warmup * kl_loss + self.lambda_reg * reg_loss
         # the gradients of the trainable variables with respect to the loss.
         grads = tape.gradient(total_loss, model.trainable_weights)
         # Run one step of gradient descent
@@ -235,9 +236,9 @@ class TrainerParticleNet(Trainer):
             tf.keras.backend.set_value(self.beta_kl_warmup, kl_value)
 
             training_loss_reco, training_loss_kl = self.training_epoch(model, loss_fn, train_ds)
-            training_loss_tot = (1-self.beta*self.beta_kl_warmup)*training_loss_reco + self.beta*self.beta_kl_warmup * training_loss_kl
+            training_loss_tot = (1-self.beta*self.beta_kl_warmup)*training_loss_reco + self.kl_scale*self.beta*self.beta_kl_warmup * training_loss_kl
             validation_loss_reco, validation_loss_kl = self.validation_epoch(model, loss_fn, valid_ds)
-            validation_loss_tot = (1-self.beta*self.beta_kl_warmup)*validation_loss_reco + self.beta*self.beta_kl_warmup * validation_loss_kl
+            validation_loss_tot = (1-self.beta*self.beta_kl_warmup)*validation_loss_reco + self.kl_scale*self.beta*self.beta_kl_warmup * validation_loss_kl
             losses_tot_train.append(training_loss_tot)
             losses_tot_valid.append(validation_loss_tot) 
             losses_reco_train.append(training_loss_reco )

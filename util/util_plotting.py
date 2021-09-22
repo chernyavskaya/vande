@@ -22,7 +22,7 @@ def plot_features( datas, xlabel, ylabel, title, plotname='', legend=[], ylogsca
 
 def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     fig = plt.figure( )
-    #max_score = np.max([1.1*np.quantile(x,0.99) for x in datas])
+    #max_score = np.max([1.1*np.quantile(x,0.9) for x in datas])
     #min_score = np.min([0.9*np.quantile(x,0.01) for x in datas])
     max_score = np.max([np.max(x) for x in datas])
     min_score = np.min([np.min(x) for x in datas])

@@ -24,6 +24,7 @@ import time
 import h5py
 import json
 import util.util_plotting as plot
+import pofah.util.utility_fun as utfu
 import time,pathlib
 import matplotlib
 matplotlib.use('Agg')
@@ -34,10 +35,10 @@ matplotlib.use('Agg')
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg generator')
-params = RunParameters(run_n=33, 
+params = RunParameters(run_n=41, 
                        epochs=40, 
-                       train_total_n=int(1e6 ),  #2e6 
-                       valid_total_n=int(1e5), #1e5
+                       train_total_n=int(1e4 ),  #`e6 
+                       valid_total_n=int(1e4), #1e5
                        gen_part_n=int(1e5), #1e5
                        batch_n=256, 
                        learning_rate=0.001,
@@ -51,29 +52,30 @@ paths = safa.SamplePathDirFactory(sdi.path_dict)
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Settings', 'name  input_shape  activation initializer conv_params conv_params_encoder conv_params_decoder with_bn edge_func conv_pooling conv_linking latent_dim ae_type beta kl_warmup_time kernel_ini_n')
+Parameters = namedtuple('Settings', 'name  input_shape  activation initializer conv_params conv_params_encoder conv_params_decoder with_bn edge_func conv_pooling conv_linking latent_dim ae_type beta kl_warmup_time kl_scale kernel_ini_n')
 settings = Parameters(name = 'PN',
-                     input_shape=[(100,2),(100,3)],
+                     input_shape=[(100,2),(100,4)],
                      activation=klayers.LeakyReLU(alpha=0.1),
                      initializer='glorot_normal', 
                       # conv_params: list of tuple in the format (K, (C1, C2, C3))
-                     conv_params = [(7, (32, 32, 32)),
-                                    (7, (64, 64, 64)),
-                                    ],
-                                #   [(16, (64, 64, 64)),
-                                #    (16, (128, 128, 128)),
-                                #    (16, (256, 256, 256)),
-                                #   ],
-                     conv_params_encoder = [20], #20
+                     conv_params = #[(7, (32, 32, 32)),
+                                    #(7, (64, 64, 64)),
+                                    #],
+                                   [(16, (64, 64, 64)),
+                                    (16, (128, 128, 128)),
+                                    (16, (256, 256, 256)),
+                                   ],
+                     conv_params_encoder = [50], #20
                      conv_params_decoder =  [50,30,10,5],
                      with_bn = True,
                      edge_func=5, #strategy for edge function from EdgeConv paper, 1-5
-                     conv_pooling = 'average',
+                     conv_pooling = 'max',
                      conv_linking = 'concat' ,#features shortcut : concat or sum or none (when shorcut is removed)
-                     latent_dim = 2,
+                     latent_dim = 15,
                      ae_type = 'ae',  #ae or vae 
                      beta=0., 
-                     kl_warmup_time = 0, 
+                     kl_warmup_time = 10, 
+                     kl_scale=1.,
                      kernel_ini_n = 0) #should be/will be removed at next iteration
 
 
@@ -95,22 +97,29 @@ if params.generator:
 else :
     # training (full tensor, 1M events -> 2M samples)
     print('>>> Preparing training dataset')
-    data_train = dage_pn.get_data_from_dir_case(path=paths.sample_dir_path('qcdSide'),sample_part_n=params.train_total_n,shuffle=True)
+    data_train = dage_pn.prepare_prediction_data_from_dir_case(path=paths.sample_dir_path('qcdSide'),sample_part_n=params.train_total_n,shuffle=True)
+    mean_stdev = utfu.get_mean_and_stdev(data_train)
+    data_train = dage_pn.const_normalizer(data_train,mean=mean_stdev[0],std=mean_stdev[1])
     train_ds = tf.data.Dataset.from_tensor_slices((data_train[:,:,0:2],data_train[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
-     #TODO : it has to be shuffled! right now it is shuffled only inside generator
     
+save_mean_std_json = json.dumps({'mean':mean_stdev[0].tolist(),'std':mean_stdev[1].tolist()}) 
+with open(os.path.join(experiment.model_dir,'mean_std.json'), 'w', encoding='utf-8') as f_json:
+    json.dump(save_mean_std_json, f_json, ensure_ascii=False, indent=4)
+
+    
+
 # validation (full tensor, 1M events -> 2M samples)
 print('>>> Preparing validation dataset')
-data_valid = dage_pn.get_data_from_dir_case(path=paths.sample_dir_path('qcdSideExt'),sample_part_n=params.valid_total_n,shuffle=True)
+data_valid = dage_pn.prepare_prediction_data_from_dir_case(path=paths.sample_dir_path('qcdSideExt'),sample_part_n=params.valid_total_n,shuffle=True)
+data_valid = dage_pn.const_normalizer(data_valid,mean=mean_stdev[0],std=mean_stdev[1])
 valid_ds = tf.data.Dataset.from_tensor_slices((data_valid[:,:,0:2],data_valid[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
-print('Plotting features')
+print('Plotting consistuents features')
 fig_dir = os.path.join(experiment.model_dir, 'figs/')
 pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
 
 num_feats = data_train.shape[-1]
-plot.plot_features([data_train.reshape(-1, num_feats)], 'Input Features' ,'Normalized Dist.' , 'QCD', plotname='{}plot_features_{}'.format(fig_dir,'QCD'), legend=['BG'], ylogscale=True)
-
+plot.plot_features([data_train.reshape(-1, num_feats)], 'Input Features' ,'Normalized Dist.' , 'QCD', plotname='{}plot_features_{}'.format(fig_dir,'QCD_side'), legend=['BG'], ylogscale=True)
 
 
 # *******************************************************
@@ -129,7 +138,7 @@ vae = vae_pn.VAE_ParticleNet(name=settings.name,conv_params=settings.conv_params
                                             initializer=settings.initializer,edge_func=settings.edge_func,
                                             input_shape=settings.input_shape,latent_dim=settings.latent_dim,ae_type=settings.ae_type,
                                             kl_warmup_time=settings.kl_warmup_time,activation=settings.activation,beta=settings.beta )
-vae.build()
+vae.build(mean_std)
 #vae.save(path=os.path.join(experiment.model_dir,'not_trained_model'))
 
 # *******************************************************
@@ -137,7 +146,7 @@ vae.build()
 # *******************************************************
 
 
-trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg,ae_type=settings.ae_type,kl_warmup_time=settings.kl_warmup_time)
+trainer = tra.TrainerParticleNet(optimizer=optimizer, beta=settings.beta, patience=3, min_delta=0.03, max_lr_decay=params.max_lr_decay, lambda_reg=params.lambda_reg,ae_type=settings.ae_type,kl_warmup_time=settings.kl_warmup_time,kl_scale=settings.kl_scale)
 losses_train, losses_valid = trainer.train(vae=vae, loss_fn=loss_fn,
                                           train_ds=train_ds,valid_ds=valid_ds,
                                           epochs=params.epochs, model_dir=experiment.model_dir)
