@@ -2,7 +2,7 @@ import sys,os, glob
 sys.path.append(os.path.abspath(os.path.join('..')))
 sys.path.append(os.path.abspath(os.path.join('../sarewt_orig/')))
 sys.path.append(os.path.abspath(os.path.join('../../')))
-#import setGPU
+import setGPU
 import numpy as np
 from collections import namedtuple
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -35,7 +35,7 @@ from sklearn.manifold import TSNE
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  ae_type test_total_n batch_n')
-params = RunParameters(run_n=26, ae_type='ae', test_total_n=int(1e5), batch_n=256)  #number of test events is times 2, because two jets  
+params = RunParameters(run_n=42, ae_type='ae', test_total_n=int(5e4), batch_n=256)  #number of test events is times 2, because two jets  
 
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 paths = safa.SamplePathDirFactory(sdi.path_dict)
@@ -67,27 +67,21 @@ for var in latent_vars:
     particles_dict[var] = {}
 
 print('>>> Preparing testing BG signals dataset')
-sig_types = 'GtoWW35na,GtoWW15na,GtoWW35br,GtoWW15br'.split(',')
+sig_types = 'GtoWW35na,GtoWW15na,GtoWW35br,GtoWW15br,qcdSideExt'.split(',')
 #sig_types = 'GtoWW15na,GtoWW35br'.split(',')
 
 for sig in ['BG']+sig_types:
-    sample_name = 'qcdSideExt' if  'BG' in sig else sig
+    sample_name = 'qcdSig' if  'BG' in sig else sig
     out_file_name = '{}{}_njets_{}.h5'.format(results_dir,sample_name,params.test_total_n)
     if pathlib.Path(out_file_name).is_file():
         print('Loading already predicted data')
         with h5py.File(out_file_name, 'r') as inFile:
             for key in particles_dict.keys():
                 if key=='latent_space' or key=='input_ds': continue
-                particles_dict[key][sig] = np.array(inFile[key][0:params.test_total_n,:,:])
+                particles_dict[key][sig] = np.array(inFile[key])#[0:params.test_total_n,:,:])
     else:
         print('Predicting')
-        in_file_name_other_run = '{}{}_njets_{}.h5'.format(results_dir.replace('run_{}'.format(params.run_n),'run_13'),sample_name,100000) #take some other file that day to speed up the reading
-        print('other file : '.format(in_file_name_other_run))
-        if pathlib.Path(in_file_name_other_run).is_file():
-            with h5py.File(in_file_name_other_run, 'r')as inFile:
-                data_test_sig = np.array(inFile['input_feats'][0:params.test_total_n,:,:])
-        else:
-            data_test_sig = dage_pn.get_data_from_file(path=paths.sample_dir_path(sample_name),file_num=-1,end=params.test_total_n,shuffle=False)
+        data_test_sig = dage_pn.get_data_from_file(path=paths.sample_dir_path(sample_name),file_num=-1,end=params.test_total_n,shuffle=False)
         sig_ds = tf.data.Dataset.from_tensor_slices((data_test_sig[:,:,0:2],data_test_sig[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
         particles_dict['input_ds'][sig]= sig_ds
         particles_dict['input_feats'][sig]= data_test_sig 

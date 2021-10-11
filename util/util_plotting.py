@@ -14,8 +14,13 @@ def plot_hist( data, xlabel, ylabel, title, plotname='', legend=[], ylogscale=Tr
 def plot_features( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     num_feats = datas[0].shape[-1]
     for i in range(num_feats):
-        plot_hist_many( [data[:,i] for data in datas], xlabel+' {}'.format(i), ylabel, title, plotname=plotname+'_{}'.format(i), legend=legend, ylogscale=ylogscale )
+        if type(xlabel)==str : 
+            xlabel_plot = xlabel+' {}'.format(i)
+        else : 
+            xlabel_plot = xlabel[i]
+        plot_hist_many( [data[:,i] for data in datas], xlabel_plot, ylabel, title, plotname=plotname+'_{}'.format(i), legend=legend, ylogscale=ylogscale )
 
+        
 def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     fig = plt.figure( )
     max_score = np.max([1.1*np.quantile(x,0.95) for x in datas])

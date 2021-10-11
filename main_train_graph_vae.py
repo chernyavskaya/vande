@@ -20,9 +20,10 @@ import util.data_generator_particlenet as dage_pn
 import sarewt.data_reader as dare
 import pofah.phase_space.cut_constants as cuts
 import training as tra
-import time
+import time,pathlib
 import h5py
 import json
+import util.util_plotting as plot
 import matplotlib
 matplotlib.use('Agg')
 
@@ -32,7 +33,7 @@ matplotlib.use('Agg')
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  epochs train_total_n gen_part_n valid_total_n batch_n learning_rate max_lr_decay lambda_reg generator')
-params = RunParameters(run_n=29, 
+params = RunParameters(run_n=42, 
                        epochs=40, 
                        train_total_n=int(2e6 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
@@ -55,20 +56,20 @@ settings = Parameters(name = 'PN',
                      activation=klayers.LeakyReLU(alpha=0.1),
                      initializer='glorot_normal', 
                       # conv_params: list of tuple in the format (K, (C1, C2, C3))
-                     conv_params = [(7, (32, 32, 32)),
-                                    (7, (64, 64, 64)),
-                                    ],
-                                #   [(16, (64, 64, 64)),
-                                #    (16, (128, 128, 128)),
-                                #    (16, (256, 256, 256)),
-                                #   ],
-                     conv_params_encoder = [20],
-                     conv_params_decoder = [50,30,10,5],  #[32,16,8]
+                     conv_params = #[(7, (32, 32, 32)),
+                                   # (7, (64, 64, 64)),
+                                   # ],
+                                   [(16, (64, 64, 64)),
+                                    (16, (128, 128, 128)),
+                                    (16, (256, 256, 256)),
+                                   ],
+                     conv_params_encoder = [100], #[20],
+                     conv_params_decoder = [50,10,5],  #[50,30,10,5],  #[32,16,8]
                      with_bn = True,
                      edge_func=5, #strategy for edge function from EdgeConv paper, 1-5
                      conv_pooling = 'average',
                      conv_linking = 'concat' ,#features shortcut : concat or sum or none (when shorcut is removed)
-                     latent_dim = 12,
+                     latent_dim = 30,
                      ae_type = 'ae',  #ae or vae 
                      beta=0., 
                      kl_warmup_time = 0, 
@@ -115,6 +116,18 @@ print('>>> Preparing validation dataset')
 #const_valid, _, features_valid, _ = dare.DataReader(path=paths.sample_dir_path('qcdSideExt')).read_events_from_dir(read_n=params.valid_total_n, **cuts.global_cuts)
 data_valid = dage_pn.get_data_from_file(path=paths.sample_dir_path('qcdSideExt'),file_num=0,end=params.valid_total_n)
 valid_ds = tf.data.Dataset.from_tensor_slices((data_valid[:,:,0:2],data_valid[:,:,:])).batch(params.batch_n, drop_remainder=True).prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+
+# *******************************************************
+#                       plotting input features 
+# *******************************************************
+
+print('Plotting consistuents features')
+fig_dir = os.path.join(experiment.model_dir, 'figs/')
+pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
+
+num_feats = data_train.shape[-1]
+plot.plot_features([data_train.reshape(-1, num_feats)], 'Input Features' ,'Normalized Dist.' , 'QCD', plotname='{}plot_features_{}'.format(fig_dir,'QCD_side'), legend=['BG'], ylogscale=True)
+
 
 # *******************************************************
 #                       training options
