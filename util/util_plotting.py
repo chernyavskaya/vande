@@ -12,13 +12,14 @@ def plot_hist( data, xlabel, ylabel, title, plotname='', legend=[], ylogscale=Tr
     plt.close()
 
 def plot_features( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
-    num_feats = datas[0].shape[-1]
+    num_feats = datas[0].shape[-1] if datas.ndim==3 else datas.shape[-1]
     for i in range(num_feats):
         if type(xlabel)==str : 
             xlabel_plot = xlabel+' {}'.format(i)
         else : 
             xlabel_plot = xlabel[i]
-        plot_hist_many( [data[:,i] for data in datas], xlabel_plot, ylabel, title, plotname=plotname+'_{}'.format(i), legend=legend, ylogscale=ylogscale )
+        plot_data = [data[:,i] for data in datas] if datas.ndim==3 else [datas[:,i]]
+        plot_hist_many(plot_data, xlabel_plot, ylabel, title, plotname=plotname+xlabel_plot, legend=legend, ylogscale=ylogscale )
 
         
 def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
@@ -26,7 +27,7 @@ def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogsc
     max_score = np.max([1.1*np.quantile(x,0.95) for x in datas])
     min_score = np.min([0.9*np.quantile(x,0.05) for x in datas])
     kwargs={'linewidth':2.3, 'fill':False, 'density':True,'histtype':'step'}
-    bins = 70
+    bins = 50
     for i,data in enumerate(datas):
         if ylogscale:
             plt.semilogy( nonpositive='clip')
