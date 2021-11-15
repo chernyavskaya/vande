@@ -19,13 +19,36 @@ def plot_features( datas, xlabel, ylabel, title, plotname='', legend=[], ylogsca
         else : 
             xlabel_plot = xlabel[i]
         plot_data = [data[:,i] for data in datas] if datas.ndim==3 else [datas[:,i]]
-        plot_hist_many(plot_data, xlabel_plot, ylabel, title, plotname=plotname+xlabel_plot, legend=legend, ylogscale=ylogscale )
+        plot_hist_many(plot_data, xlabel_plot, ylabel, title, plotname=plotname+xlabel_plot+'_log', legend=legend, ylogscale=True )
+        plot_hist_many(plot_data, xlabel_plot, ylabel, title, plotname=plotname+xlabel_plot, legend=legend, ylogscale=False )
 
         
+def plot_2dhist( data_x, data_y,xlabel, ylabel, title, plotname='',cmap=plt.cm.Reds):
+    fig = plt.figure( )
+    max_score_x =np.quantile(data_x,0.95)
+    min_score_x = np.quantile(data_x,0.05)
+    max_score_y =np.quantile(data_y,0.95)
+    min_score_y = np.quantile(data_y,0.05)
+    bins_x = np.linspace(2*min_score_x if min_score_x<0 else 0.5*min_score_x,2*max_score_x if max_score_x>0 else 0.5*max_score_x,100)
+    bins_y = np.linspace(2*min_score_y if min_score_y<0 else 0.5*min_score_y,2*max_score_y if max_score_y>0 else 0.5*max_score_y,100)
+    kwargs={'cmap':cmap,'density':True}
+    im = plt.hist2d( data_x,data_y, bins=(bins_x,bins_y), **kwargs)
+    fig.colorbar(im[3])
+    plt.ylabel( ylabel )
+    plt.xlabel( xlabel )
+    plt.title( title, fontsize=10 )
+    plt.tick_params(axis='both', which='minor', labelsize=8)
+    plt.tight_layout()
+    fig.savefig(plotname + '.png')
+    fig.savefig(plotname + '.pdf')
+    plt.close()
+
+
+
 def plot_hist_many( datas, xlabel, ylabel, title, plotname='', legend=[], ylogscale=True ):
     fig = plt.figure( )
-    max_score = np.max([1.1*np.quantile(x,0.95) for x in datas])
-    min_score = np.min([0.9*np.quantile(x,0.05) for x in datas])
+    max_score = np.max([1.1*np.quantile(x,0.97) for x in datas])
+    min_score = np.min([0.9*np.quantile(x,0.03) for x in datas])
     kwargs={'linewidth':2.3, 'fill':False, 'density':True,'histtype':'step'}
     bins = 50
     for i,data in enumerate(datas):
