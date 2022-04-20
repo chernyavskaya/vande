@@ -17,33 +17,38 @@ def get_label_and_score_arrays(neg_class_losses, pos_class_losses):
     return [labels, losses]
 
 
-def plot_roc(neg_class_losses, pos_class_losses, legend=[], title='ROC', legend_loc='best', plot_name='ROC', fig_dir=None, xlim=None, log_x=True):
+def plot_roc(neg_class_losses, pos_class_losses, legend=[], title='ROC', legend_loc='best', plot_name='ROC', fig_dir=None, xlim=None,ylim=None, log_x=True,vline_threshold=1e-5):
 
     class_labels, losses = get_label_and_score_arrays(neg_class_losses, pos_class_losses) # neg_class_loss array same for all pos_class_losses
 
     aucs = []
     fig = plt.figure(figsize=(7, 7))
 
-    for y_true, loss, label in zip(class_labels, losses, legend):
+    colors = ['#7a5195','#ef5675','#3690c0','#ffa600','#67a9cf','#014636', '#016c59']
+    for y_true, loss, label,color in zip(class_labels, losses, legend,colors):
         fpr, tpr, threshold = skl.roc_curve(y_true, loss)
         aucs.append(skl.roc_auc_score(y_true, loss))
         if log_x:
-            plt.loglog(tpr, 1./fpr, label=label + " (auc " + "{0:.3f}".format(aucs[-1]) + ")")
+            plt.loglog(fpr,tpr, c=color, label=label + " (AUC = " + "{0:.2f}".format(aucs[-1]) + ")")
         else:
-            plt.semilogy(tpr, 1./fpr, label=label + " (auc " + "{0:.3f}".format(aucs[-1]) + ")")
+            plt.semilogy( fpr, tpr,c=color,label=label + " (AUC = " + "{0:.2f}".format(aucs[-1]) + ")")
 
-    plt.grid()
+    #plt.grid()
+    plt.vlines(vline_threshold, 0, 1, linestyles='--', color='lightcoral')
+    plt.plot(np.linspace(0, 1),np.linspace(0, 1), '--', color='0.75')
     if xlim:
-        plt.xlim(left=xlim)
-    plt.xlabel('True positive rate')
-    plt.ylabel('1 / False positive rate')
-    plt.legend(loc=legend_loc)
+        plt.xlim(left=xlim,right=1.)
+    if ylim:
+        plt.ylim(bottom=ylim,top=1.)
+    plt.ylabel('True Positive Rate')
+    plt.xlabel('False Positive Rate')
+    plt.legend(loc=legend_loc,fontsize=14)
     plt.tight_layout()
     plt.title(title)
     if fig_dir:
         fig.savefig(os.path.join(fig_dir, plot_name + '.png'), bbox_inches='tight' )
-    plt.close(fig)
-    #plt.show()
+        plt.close(fig)
+    plt.show()
 
     return aucs
 
